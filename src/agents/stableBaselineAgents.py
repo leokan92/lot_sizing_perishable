@@ -5,7 +5,7 @@ import gym
 import torch
 import numpy as np
 import copy
-from envs import SimplePlant
+from src.envs import SimplePlant
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from stable_baselines3 import PPO,A2C,DQN,SAC,DDPG

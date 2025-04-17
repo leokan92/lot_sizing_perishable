@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import gym
 import numpy as np
-from envs.simplePlant import SimplePlant
+from src.envs.simplePlant import SimplePlant
 
 
 class SequenceDependentPlant(SimplePlant):
