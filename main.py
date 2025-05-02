@@ -4,7 +4,7 @@ import json
 import random
 import numpy as np
 import torch
-from src.envs.simplePlant import SimplePlant
+from envs.perishableInvEnv import PerishableInvEnv
 from src.scenarioManager.stochasticDemandModel import StochasticDemandModel
 from src.agents.FixedPolicyAgent import FixedPolicyAgent
 
@@ -31,7 +31,7 @@ def main():
     # Models setups:
     stoch_model = StochasticDemandModel(settings)
     settings['time_horizon'] = 10 # TODO include this in the json file
-    env = SimplePlant(settings, stoch_model)
+    env = PerishableInvEnv(settings, stoch_model,seed)
     settings['dict_obs'] = False # TODO include this in the json file
 
     # Define fixed action

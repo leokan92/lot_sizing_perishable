@@ -1,9 +1,9 @@
-from envs import SimplePlant
+from envs import PerishableInvEnv
 import numpy as np
 import gym
 import copy
 
-class SimplePlantSB(SimplePlant):
+class PerishableInvEnvSB(PerishableInvEnv):
     def __init__(self, settings, stoch_model):
         super().__init__(settings, stoch_model)
         try:
@@ -61,7 +61,7 @@ class SimplePlantSB(SimplePlant):
         """
         Returns the next demand
         """
-        obs = SimplePlant._next_observation(self)
+        obs = PerishableInvEnv._next_observation(self)
         # obs['last_inventory_level'] = copy.copy(self.last_inventory)
         if isinstance(obs, dict):    
             if not self.dict_obs:

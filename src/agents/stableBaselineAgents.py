@@ -5,7 +5,7 @@ import gym
 import torch
 import numpy as np
 import copy
-from src.envs import SimplePlant
+from src.envs import PerishableInvEnv
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from stable_baselines3 import PPO,A2C,DQN,SAC,DDPG
@@ -14,7 +14,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.callbacks import EvalCallback
 
 
-class SimplePlantSB(SimplePlant):
+class PerishableInvEnvSB(PerishableInvEnv):
     def __init__(self, settings, stoch_model):
         super().__init__(settings, stoch_model)
         try:self.dict_obs = settings['dict_obs']
@@ -76,7 +76,7 @@ class SimplePlantSB(SimplePlant):
         """
         Returns the next demand
         """
-        obs = SimplePlant._next_observation(self)
+        obs = PerishableInvEnv._next_observation(self)
         obs['last_inventory_level'] = copy.copy(self.last_inventory)
         if isinstance(obs, dict):    
             if not self.dict_obs:
@@ -99,13 +99,13 @@ class StableBaselineAgent():
     We adapt the env to stablebaseline requirements:
     A different _next_observation is required, with the observation space.
     """
-    def __init__(self, env: SimplePlant, settings: dict):
+    def __init__(self, env: PerishableInvEnv, settings: dict):
         super(StableBaselineAgent, self).__init__()
         
         if settings['multiagent']:
             self.env = env
         else:
-            self.env = SimplePlantSB(env.settings, env.stoch_model)
+            self.env = PerishableInvEnvSB(env.settings, env.stoch_model)
         self.last_inventory = env.inventory_level
         self.model_name = settings['model_name']
         self.experiment_name = settings['experiment_name']

@@ -3,10 +3,10 @@ import os
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from envs.simplePlant import SimplePlant
+from envs.perishableInvEnv import PerishableInvEnv
 from agents import PerfectInfoAgent
 
-def _test_agent(env: SimplePlant, agent, label, verbose=True):
+def _test_agent(env: PerishableInvEnv, agent, label, verbose=True):
     actions = []
     setup_costs = []
     lost_sales = []
@@ -76,7 +76,7 @@ def plot_comparison(env, dict_results, col_dict={}):
         plt.ylabel('action')
     plt.show()
 
-def test_agents(env: SimplePlant, agents: list, n_reps: int =10, use_benchmark_PI=True, verbose=False, setting_sol_method = ''):
+def test_agents(env: PerishableInvEnv, agents: list, n_reps: int =10, use_benchmark_PI=True, verbose=False, setting_sol_method = ''):
     dict_res = {}
     key_files = ['actions','setup_costs','lost_sales','holding_costs','demands','observations']
     for key, _ in agents:

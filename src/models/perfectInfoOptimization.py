@@ -6,7 +6,7 @@ from envs import *
 
 
 class PerfectInfoOptimization():
-    def __init__(self, instance: SimplePlant):
+    def __init__(self, instance: PerishableInvEnv):
         self.name = "perfectInfoOptimization"
         self.instance = instance
         # Sets

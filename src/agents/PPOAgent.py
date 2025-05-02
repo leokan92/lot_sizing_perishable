@@ -14,10 +14,10 @@ BASE_DIR = os.path.dirname(os.path.abspath('__file__'))
 AGENTS_DIR = os.path.join(BASE_DIR,'agents')
 sys.path.append(AGENTS_DIR)
 from src.agents.PPO import PPO
-from src.envs import  SimplePlant
+from src.envs import  PerishableInvEnv
 
 
-class SimplePlantSB(SimplePlant):
+class PerishableInvEnvSB(PerishableInvEnv):
     def __init__(self, settings, stoch_model):
         super().__init__(settings, stoch_model)
         try:self.dict_obs = settings['dict_obs']
@@ -83,7 +83,7 @@ class SimplePlantSB(SimplePlant):
         """
         Returns the next demand
         """
-        obs = SimplePlant._next_observation(self)
+        obs = PerishableInvEnv._next_observation(self)
         #obs['last_inventory_level'] = copy.copy(self.last_inventory)
         if isinstance(obs, dict):    
             if not self.dict_obs:
@@ -101,8 +101,8 @@ class SimplePlantSB(SimplePlant):
 
 
 class PPOAgent():
-    def __init__(self, env: SimplePlant, settings: dict):
-        self.env = SimplePlantSB(env.settings, env.stoch_model)
+    def __init__(self, env: PerishableInvEnv, settings: dict):
+        self.env = PerishableInvEnvSB(env.settings, env.stoch_model)
         self.last_inventory = env.inventory_level
         self.model_name = settings['model_name']
         self.experiment_name = settings['experiment_name']

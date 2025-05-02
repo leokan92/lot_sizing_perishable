@@ -1,16 +1,16 @@
 import numpy as np
-# Assuming SimplePlant is correctly imported from its location
-from src.envs import SimplePlant
+# Assuming PerishableInvEnv is correctly imported from its location
+from src.envs import PerishableInvEnv
 # Assuming StochasticDemandModel is correctly imported
 # from src.scenarioManager.stochasticDemandModel import StochasticDemandModel
 
 class FixedPolicyAgent:
-    def __init__(self, env: SimplePlant, fixed_action):
+    def __init__(self, env: PerishableInvEnv, fixed_action):
         """
         Initializes the agent with a fixed action policy.
 
         Args:
-            env (SimplePlant): The inventory management environment instance.
+            env (PerishableInvEnv): The inventory management environment instance.
             fixed_action (np.ndarray): The action to take at every step.
                                       Shape should match env.action_space.
         """
