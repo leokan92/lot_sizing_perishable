@@ -1,63 +1,68 @@
+# src/agents/FixedPolicyAgent.py
 import numpy as np
-# Assuming PerishableInvEnv is correctly imported from its location
-from src.envs import PerishableInvEnv
-# Assuming StochasticDemandModel is correctly imported
-# from src.scenarioManager.stochasticDemandModel import StochasticDemandModel
+import sys # Import sys for checking tqdm
 
 class FixedPolicyAgent:
-    def __init__(self, env: PerishableInvEnv, fixed_action):
+    def __init__(self, env, num_final_eval_episodes: int = 1, **kwargs): # Add num_final_eval_episodes
         """
         Initializes the agent with a fixed action policy.
 
         Args:
-            env (PerishableInvEnv): The inventory management environment instance.
-            fixed_action (np.ndarray): The action to take at every step.
-                                      Shape should match env.action_space.
+            env (PerishableInvEnv): The environment instance.
+            num_final_eval_episodes (int): Number of episodes for FINAL evaluation run.
+            **kwargs: Must contain 'policy_definition' or 'fixed_action'.
         """
         self.env = env
-        # Ensure fixed_action is a NumPy array for consistency if needed
-        self.fixed_action = np.array(fixed_action)
-        # Optional: Validate action shape against env.action_space
-        # if self.fixed_action.shape != self.env.action_space.shape:
-        #    raise ValueError(f"Fixed action shape {self.fixed_action.shape} does not match env action space {self.env.action_space.shape}")
+        self.num_final_eval_episodes = num_final_eval_episodes # Store it
+        self.fixed_action = self._generate_action(**kwargs)
 
+    def _generate_action(self, **kwargs):
+        # (Keep this method as before)
+        if 'fixed_action' in kwargs:
+            action = np.array(kwargs['fixed_action'], dtype=np.float32)
+        elif 'policy_definition' in kwargs:
+            definition = kwargs['policy_definition']
+            n_items = self.env.n_items
+            n_suppliers = self.env.n_suppliers
+            action = np.zeros((n_items, n_suppliers), dtype=np.float32)
+            if definition.get('type') == 'first_available':
+                quantity = float(definition.get('quantity', 0))
+                for i in range(n_items):
+                    for s in range(n_suppliers):
+                        if self.env.item_supplier_matrix[i, s]:
+                            action[i, s] = quantity
+                            break
+            else:
+                print(f"Warning: Unknown policy def type '{definition.get('type')}'. Zero action.")
+        else:
+             raise ValueError("FixedPolicyAgent needs 'fixed_action' or 'policy_definition'.")
+        if action.shape != self.env.action_space.shape:
+            raise ValueError("Fixed action shape mismatch.")
+        print(f"Using Fixed Action:\n{action}")
+        return action
 
-    def run(self, n_episodes=1, render_steps=False):
-        """
-        Runs the agent in the environment for a specified number of episodes.
-
-        Args:
-            n_episodes (int): The number of episodes to run.
-            render_steps (bool): Whether to call env.render() after each step.
-        """
+    # Modify run to use self.num_final_eval_episodes
+    def run(self, render_steps=False, verbose=False):
+        """Runs the agent using the fixed policy for FINAL evaluation."""
         all_episode_rewards = []
-        for episode in range(n_episodes):
-            # Reset returns observation and info dictionary
+        # Use self.num_final_eval_episodes here
+        print(f"\nRunning final evaluation with Fixed Policy for {self.num_final_eval_episodes} episode(s)...")
+        for episode in range(self.num_final_eval_episodes):
             observation, info_reset = self.env.reset()
-            # We typically don't need the info from reset in the main loop
-            state = observation # Use the observation as the current state
-
+            state = observation
             terminated = False
             truncated = False
-            total_reward = 0.0 # Use float for rewards
-
-            # Loop continues until the episode is terminated OR truncated
+            total_reward = 0.0
             while not (terminated or truncated):
-                # Use the predefined fixed action
                 action = self.fixed_action
-
-                # --- Unpack all 5 return values from step ---
-                observation_next, reward, terminated, truncated, info = self.env.step(action)
-                self.env.render()
-                # ---------------------------------------------
-
+                observation_next, reward, terminated, truncated, info = self.env.step(action, verbose=verbose)
+                if render_steps: self.env.render()
                 total_reward += reward
-                state = observation_next # Update state for the next iteration (if needed, though not used here)
-
-                if render_steps:
-                    self.env.render() # Call render if requested
-
-            print(f"Episode {episode + 1}: Total Reward: {total_reward:.2f}")
+                state = observation_next
+            if verbose: print(f"Evaluation Episode {episode + 1}: Total Reward: {total_reward:.2f}")
             all_episode_rewards.append(total_reward)
-
-        return all_episode_rewards # Return list of total rewards per episode
+        # Use self.num_final_eval_episodes here
+        if self.num_final_eval_episodes > 0:
+            avg_final_reward = np.mean(all_episode_rewards)
+            print(f"Average reward over {self.num_final_eval_episodes} final evaluation episodes: {avg_final_reward:.2f}")
+        return all_episode_rewards # Return list

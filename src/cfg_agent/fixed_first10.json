@@ -1,0 +1,11 @@
+{
+  "agent_type": "fixed",
+  "description": "Orders 10 units from the first available supplier for each item.",
+  "params": {
+    "policy_definition": {
+      "type": "first_available",
+      "quantity": 5.0
+    },
+    "num_final_eval_episodes": 100
+  }
+}
