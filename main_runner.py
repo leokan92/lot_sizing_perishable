@@ -187,7 +187,7 @@ if __name__ == "__main__":
            '--start_seed', '42',
            '--num_seeds', '1',
            '--output_file', default_output_path,
-           # '--save_cop_policy', './src/results/policies/cop_optimized.npy'
+           '--save_cop_policy', './src/results/policies/cop_optimized.npy'
         ])
         print(f"--> Defaulting to: COP Agent (cop_default), saving results to {default_output_path}")
         
