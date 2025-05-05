@@ -1,0 +1,11 @@
+
+{
+    "agent_type": "bsp",
+    "description": "Base Stock Policy (BSP) optimized via Monte Carlo. Selects a target stock level and a single supplier for each item.",
+    "params": {
+      "num_candidate_policies": 200,
+      "num_optimize_eval_episodes": 15,
+      "num_final_eval_episodes": 100,
+      "base_stock_level_options": [0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100]
+    }
+  }

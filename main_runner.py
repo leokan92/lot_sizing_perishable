@@ -37,16 +37,23 @@ def load_config(file_path):
 
 def get_agent_class(agent_type_name):
     """Dynamically imports and returns the agent class."""
-    agent_mapping = {"fixed": ("FixedPolicyAgent", "src.agents.FixedPolicyAgent"),
-                     "cop": ("ConstantOrderPolicyAgent", "src.agents.ConstantOrderPolicyAgent")}
-    if agent_type_name not in agent_mapping: raise ValueError(f"Unknown agent type: '{agent_type_name}'")
+    agent_mapping = {
+        "fixed": ("FixedPolicyAgent", "src.agents.FixedPolicyAgent"),
+        "cop": ("ConstantOrderPolicyAgent", "src.agents.ConstantOrderPolicyAgent"),
+        "bsp": ("BaseStockPolicyAgent", "src.agents.BaseStockPolicyAgent") # <--- ADD THIS LINE
+    }
+    if agent_type_name not in agent_mapping:
+        raise ValueError(f"Unknown agent type: '{agent_type_name}'")
     class_name, module_path = agent_mapping[agent_type_name]
     try:
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
-    except ModuleNotFoundError: print(f"Error: Agent module not found: {module_path}", file=sys.stderr); sys.exit(1)
-    except AttributeError: print(f"Error: Agent class '{class_name}' not found in {module_path}", file=sys.stderr); sys.exit(1)
-# --- End Utility Functions ---
+    except ModuleNotFoundError:
+        print(f"Error: Agent module not found: {module_path}", file=sys.stderr)
+        sys.exit(1)
+    except AttributeError:
+        print(f"Error: Agent class '{class_name}' not found in {module_path}", file=sys.stderr)
+        sys.exit(1)
 
 # --- Main Execution Logic ---
 def run_experiment(args, current_seed): # Accept seed
@@ -166,31 +173,55 @@ if __name__ == "__main__":
 
     # Handle Defaults if No Command Line Args
     if len(sys.argv) == 1:
-        """
-        print("INFO: No command-line arguments. Using default fixed_first10 run.")
-        default_output_path = './src/results/exp1.csv' # Define default output path
-        args = parser.parse_args([
-            '--env_name', 'setting_1',
-            '--agent_name', 'fixed_first10', # Reads num_final_eval_episodes from JSON
-            '--start_seed', '42',
-            '--num_seeds', '1',
-            '--output_file', default_output_path # Pass default output file
-        ])
-        print(f"--> Defaulting to: Fixed Agent (fixed_first10), saving results to {default_output_path}")
-        """
+        #--------------------------------------------------------------
+        # print("INFO: No command-line arguments. Using default fixed_first10 run.")
+        # default_output_path = './src/results/exp1.csv' # Define default output path
+        # args = parser.parse_args([
+        #     '--env_name', 'setting_1',
+        #     '--agent_name', 'fixed_first10', # Reads num_final_eval_episodes from JSON
+        #     '--start_seed', '42',
+        #     '--num_seeds', '1',
+        #     '--output_file', default_output_path # Pass default output file
+        # ])
+        # print(f"--> Defaulting to: Fixed Agent (fixed_first10), saving results to {default_output_path}")
+
+        #--------------------------------------------------------------
         # --- Alternative Default: COP Agent (Commented Out) ---
             
-        default_output_path = './src/results/exp1.csv'
+        # default_output_path = './src/results/exp1.csv'
+        # args = parser.parse_args([
+        #    '--env_name', 'setting_1',
+        #    '--agent_name', 'cop_default', # Reads num_final_eval_episodes from JSON
+        #    '--start_seed', '42',
+        #    '--num_seeds', '1',
+        #    '--output_file', default_output_path,
+        #    '--save_cop_policy', './src/results/policies/cop_optimized.npy'
+        # ])
+        # print(f"--> Defaulting to: COP Agent (cop_default), saving results to {default_output_path}")
+        #--------------------------------------------------------------
+
+        print("INFO: No command-line arguments. Using default BSP run.")
+        default_output_path = './src/results/exp_bsp_default.csv' # Unique default name
+        # Define a specific default path for the optimized BSP policy
+        default_bsp_policy_path = './src/results/policies/bsp_optimized_default.npy'
+
         args = parser.parse_args([
-           '--env_name', 'setting_1',
-           '--agent_name', 'cop_default', # Reads num_final_eval_episodes from JSON
-           '--start_seed', '42',
-           '--num_seeds', '1',
-           '--output_file', default_output_path,
-           '--save_cop_policy', './src/results/policies/cop_optimized.npy'
+           '--env_name', 'setting_1',        # Or your preferred default environment
+           '--agent_name', 'bsp_default',    # Reference the bsp_default.json config
+           '--start_seed', '42',             # Default starting seed
+           '--num_seeds', '1',               # Default number of runs
+           '--output_file', default_output_path, # Where to save results CSV
+
+           # NOTE: The argument NAME is still --save_cop_policy based on your
+           # original argparse setup. The main_runner script logic correctly
+           # uses this path to save the policy regardless of type (COP or BSP).
+           # We just provide a BSP-specific FILENAME here for clarity.
+           '--save_policy_path', default_bsp_policy_path
         ])
-        print(f"--> Defaulting to: COP Agent (cop_default), saving results to {default_output_path}")
-        
+        print(f"--> Defaulting to: BSP Agent (bsp_default), saving results to {default_output_path}")
+        print(f"--> Optimized BSP policy will be saved to: {default_bsp_policy_path}")
+        #--------------------------------------------------------------
+
     else:
         args = parser.parse_args()
 
