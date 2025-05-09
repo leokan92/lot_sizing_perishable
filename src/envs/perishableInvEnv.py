@@ -9,12 +9,12 @@ from src.scenarioManager.stochasticDemandModel import StochasticDemandModel # Ex
 class PerishableInvEnv(gym.Env):
     metadata = {'render_modes': ['human'], 'render_fps': 1}
 
-    def __init__(self, settings: dict, stochastic_model_settings: dict, seed=None):
+    def __init__(self, settings: dict, stochastic_model_settings: dict, seed=None): # stochastic_model_settings is stoch_model in main_runner
         super(PerishableInvEnv, self).__init__()
         self._initial_seed = seed
         self._current_seed_state = self._initial_seed
         self.settings = settings
-        self.stoch_model = stochastic_model_settings
+        self.stoch_model = stochastic_model_settings # Corrected param name to match usage
         self.env_rng = default_rng(seed)
 
         # --- Basic cardinalities & Parameters ---
@@ -44,36 +44,43 @@ class PerishableInvEnv(gym.Env):
         self.min_purchase_costs_per_item[np.isinf(self.min_purchase_costs_per_item)] = 0.0 # Default if no supplier
 
         # --- Handle Initial Inventory Value ---
+        # CORRECTED: Get 'initial_inventory_value' from settings dictionary
         self.initial_inventory_value_setting = settings.get('initial_inventory_value', None)
+
         if self.initial_inventory_value_setting is None:
             # Default: Value initial inventory at minimum purchase cost
             self.initial_inventory_value = np.zeros_like(self.initial_inventory_age, dtype=float)
             for i in range(self.n_items):
                  self.initial_inventory_value[i, :] = self.initial_inventory_age[i, :] * self.min_purchase_costs_per_item[i]
-            print("Info: 'initial_inventory_value' not specified. Initializing value using minimum purchase costs.")
+            print("Info: 'initial_inventory_value' not specified in settings. Initializing value using minimum purchase costs.")
         elif isinstance(self.initial_inventory_value_setting, (int, float)) and self.initial_inventory_value_setting == 0:
              self.initial_inventory_value = np.zeros_like(self.initial_inventory_age, dtype=float)
-             print("Info: Initializing inventory value to zero.")
+             print("Info: 'initial_inventory_value' set to 0 in settings. Initializing inventory value to zero.")
         else:
             # Assume it's a numpy array compatible with initial_inventory_age
             try:
-                 self.initial_inventory_value = np.array(self.initial_inventory_value_setting, dtype=float)
-                 assert self.initial_inventory_value.shape == self.initial_inventory_age.shape, \
-                     "Shape mismatch: initial_inventory_value and initial_inventory_age"
-                 print("Info: Using provided 'initial_inventory_value'.")
+                 # Ensure it's a numpy array before checking shape
+                 provided_value_array = np.array(self.initial_inventory_value_setting, dtype=float)
+                 assert provided_value_array.shape == self.initial_inventory_age.shape, \
+                     f"Shape mismatch: initial_inventory_value shape {provided_value_array.shape} and initial_inventory_age shape {self.initial_inventory_age.shape}"
+                 self.initial_inventory_value = provided_value_array
+                 print("Info: Using provided 'initial_inventory_value' from settings.")
             except Exception as e:
-                 raise ValueError(f"Invalid 'initial_inventory_value' setting: {e}")
+                 # Add more context to the error message
+                 raise ValueError(f"Invalid 'initial_inventory_value' setting in config. Expected shape {self.initial_inventory_age.shape} or 0 or null. Error: {e}")
 
 
         # --- Validation ---
-        assert self.prob_full_fulfillment.shape == (self.n_items, self.n_suppliers)
+        assert self.prob_full_fulfillment.shape == (self.n_items, self.n_suppliers), \
+            f"prob_full_fulfillment shape mismatch: expected {(self.n_items, self.n_suppliers)}, got {self.prob_full_fulfillment.shape}"
         # ... other validations ...
 
         # --- State variables & Pre-generated randomness ---
         self.current_step = 0
         # Inventory Quantity and Value
+        # Initialize here, but they will be properly set in reset()
         self.inventory_age = np.zeros((self.n_items, self.max_age), dtype=int)
-        self.inventory_value = np.zeros_like(self.inventory_age, dtype=float) # NEW
+        self.inventory_value = np.zeros_like(self.inventory_age, dtype=float)
         self.inventory_level = np.zeros(self.n_items, dtype=int)
 
         self.order_history = []
@@ -96,6 +103,7 @@ class PerishableInvEnv(gym.Env):
             # 'inventory_value': spaces.Box(low=0, high=np.inf, shape=(self.n_items, self.max_age), dtype=float), # Optional: Add if agent needs value state
             'current_step': spaces.Discrete(self.T)
         })
+
 
     # --- generate_scenario_realization, _pregenerate_randomness remain the same ---
     def generate_scenario_realization(self):
