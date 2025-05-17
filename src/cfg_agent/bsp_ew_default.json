@@ -1,0 +1,11 @@
+{
+    "agent_type": "bsp_ew",
+    "params": {
+        "num_candidate_policies": 50,
+        "num_optimize_eval_episodes": 5,
+        "num_final_eval_episodes": 10,
+        "base_stock_level_options": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20],
+        "waste_estimation_method": "closed_form_approx",
+        "waste_horizon_review_periods": 1
+    }
+}

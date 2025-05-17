@@ -11,7 +11,7 @@ import importlib
 import csv
 from datetime import datetime
 
-# --- Utility Functions (set_seed, load_config, get_agent_class - keep as before) ---
+# --- Utility Functions (set_seed, load_config, get_agent_class) ---
 def set_seed(seed_value):
     """Sets seeds for reproducibility."""
     np.random.seed(seed_value)
@@ -40,7 +40,8 @@ def get_agent_class(agent_type_name):
     agent_mapping = {
         "fixed": ("FixedPolicyAgent", "src.agents.FixedPolicyAgent"),
         "cop": ("ConstantOrderPolicyAgent", "src.agents.ConstantOrderPolicyAgent"),
-        "bsp": ("BaseStockPolicyAgent", "src.agents.BaseStockPolicyAgent")
+        "bsp": ("BaseStockPolicyAgent", "src.agents.BaseStockPolicyAgent"),
+        "bsp_ew": ("BSPEWAgent", "src.agents.BSPEWAgent")
     }
     if agent_type_name not in agent_mapping:
         raise ValueError(f"Unknown agent type: '{agent_type_name}'")
@@ -90,28 +91,26 @@ def run_experiment(args, current_seed): # Accept seed
     agent_params = agent_config.get("params", {})
     if not agent_type: print(f"Error: 'agent_type' missing in {agent_config_path}", file=sys.stderr); sys.exit(1)
 
-    num_final_eval_episodes = agent_params.get('num_final_eval_episodes', 1) # Default to 1
+    # num_final_eval_episodes = agent_params.get('num_final_eval_episodes', 1) # Default to 1
+    # Agent will use its own num_final_eval_episodes from its config
 
     AgentClass = get_agent_class(agent_type)
     print(f"Initializing agent '{args.agent_name}' (Type: {agent_type})...")
     start_agent_init = time.time()
 
-    policy_file_path_used = None # Generic variable for the policy file path
+    policy_file_path_used = None
 
-    # Check if the agent type is one that might save/load policies (e.g., COP, BSP)
-    # You might want to make this check more robust or specific if you add more agent types
-    if agent_type in ["cop", "bsp"]: # Add other policy-based agents here
-        agent_params['load_policy_path'] = args.load_policy_file # Use generic arg
+    # Check if the agent type is one that might save/load policies (e.g., COP, BSP, BSP_EW)
+    if agent_type in ["cop", "bsp", "bsp_ew"]: # Added bsp_ew
+        agent_params['load_policy_path'] = args.load_policy_file
         if args.load_policy_file:
              policy_file_path_used = args.load_policy_file
              agent_params['save_policy_path'] = None # Don't save if loading
-        elif args.save_policy_file: # Use generic arg
+        elif args.save_policy_file:
              save_dir = os.path.dirname(args.save_policy_file) or '.'
              base_name = os.path.basename(args.save_policy_file)
              name, ext = os.path.splitext(base_name)
-             ext = ext or '.npy' # Default to .npy if no extension
-             # Append agent type and seed to filename if saving a new policy
-             # to avoid overwriting and for clarity
+             ext = ext or '.npy'
              descriptive_name = f"{name}_{agent_type}"
              save_filename = f"{descriptive_name}_seed{current_seed}{ext}" if args.num_seeds > 1 else f"{descriptive_name}{ext}"
              full_save_path = os.path.join(save_dir, save_filename)
@@ -120,12 +119,11 @@ def run_experiment(args, current_seed): # Accept seed
         else:
              agent_params['save_policy_path'] = None
     else:
-        # For agents that don't load/save policies, ensure these params are None
         agent_params['load_policy_path'] = None
         agent_params['save_policy_path'] = None
 
 
-    agent = AgentClass(env, **agent_params)
+    agent = AgentClass(env, **agent_params) # Pass all params from agent_config
     end_agent_init = time.time()
     print(f"Agent initialization/optimization took {end_agent_init - start_agent_init:.2f} seconds.")
 
@@ -148,14 +146,18 @@ def run_experiment(args, current_seed): # Accept seed
         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Env_Name": args.env_name,
         "Agent_Name": args.agent_name,
-        "Agent_Config": os.path.basename(agent_config_path),
+        "Agent_Type": agent_type, # Added for clarity
+        "Agent_Config_File": os.path.basename(agent_config_path), # Renamed for clarity
         "Num_Eval_Episodes": len(episode_rewards),
         "Avg_Reward": f"{avg_reward:.4f}",
         "StdDev_Reward": f"{std_dev_reward:.4f}",
         "Min_Reward": f"{min_reward:.4f}",
         "Max_Reward": f"{max_reward:.4f}",
-        "Policy_File": policy_file_path_used if policy_file_path_used else "" # Generic key
+        "Policy_File": policy_file_path_used if policy_file_path_used else ""
     }
+    if agent_type == "bsp_ew":
+        result_data["EW_Method"] = agent_params.get("waste_estimation_method", "N/A")
+        result_data["EW_Horizon_R"] = agent_params.get("waste_horizon_review_periods", "N/A")
     for i, ep_reward in enumerate(episode_rewards):
         result_data[f"Reward_Ep{i+1}"] = f"{ep_reward:.4f}"
 
@@ -176,30 +178,44 @@ if __name__ == "__main__":
     parser.add_argument('--start_seed', type=int, default=int(time.time()) % 10000, help='Starting seed value')
     parser.add_argument('--render', action='store_true', help='Render steps')
     parser.add_argument('--verbose', action='store_true', help='Verbose env.step output')
-    # Generic argument names for loading/saving policies
     parser.add_argument('--load_policy_file', type=str, default=None, help='Path to load a pre-trained policy file (.npy)')
     parser.add_argument('--save_policy_file', type=str, default=None, help='Path to save an optimized policy file (.npy)')
     parser.add_argument('--output_file', type=str, default=None, help='Path to CSV for results')
 
     # Handle Defaults if No Command Line Args
     if len(sys.argv) == 1:
-        # --- Default: BSP Agent ---
-        print("INFO: No command-line arguments. Using default BSP run.")
-        default_output_csv_path = './src/results/exp_bsp_default.csv'
-        default_policy_save_path = './src/results/policies/bsp_optimized_default.npy' # File name for the saved policy
+        # --- Default: BSP-EW Agent ---
+        print("INFO: No command-line arguments. Using default BSP-EW run.")
+        default_output_csv_path = './src/results/exp_bsp_ew_default.csv'
+        default_policy_save_path = './src/results/policies/bsp_ew_optimized_default.npy'
 
         args = parser.parse_args([
            '--env_name', 'setting_1',
-           '--agent_name', 'bsp_default',    # Assumes bsp_default.json exists
+           '--agent_name', 'bsp_ew_default',    # Assumes bsp_ew_default.json exists
            '--start_seed', '42',
            '--num_seeds', '1',
            '--output_file', default_output_csv_path,
-           '--save_policy_file', default_policy_save_path # Use generic arg name
+           '--save_policy_file', default_policy_save_path
         ])
-        print(f"--> Defaulting to: BSP Agent (bsp_default), saving results to {default_output_csv_path}")
-        print(f"--> Optimized BSP policy will be saved to (if not loading): {default_policy_save_path}")
+        print(f"--> Defaulting to: BSP-EW Agent (bsp_ew_default), saving results to {default_output_csv_path}")
+        print(f"--> Optimized BSP-EW policy will be saved to (if not loading): {default_policy_save_path}")
 
-        # --- To make COP the default, uncomment below and comment/remove BSP default ---
+        # --- To make BSP the default, uncomment below and comment/remove BSP-EW default ---
+        # print("INFO: No command-line arguments. Using default BSP run.")
+        # default_output_csv_path = './src/results/exp_bsp_default.csv'
+        # default_policy_save_path = './src/results/policies/bsp_optimized_default.npy' # File name for the saved policy
+        # args = parser.parse_args([
+        #    '--env_name', 'setting_1',
+        #    '--agent_name', 'bsp_default',    # Assumes bsp_default.json exists
+        #    '--start_seed', '42',
+        #    '--num_seeds', '1',
+        #    '--output_file', default_output_csv_path,
+        #    '--save_policy_file', default_policy_save_path
+        # ])
+        # print(f"--> Defaulting to: BSP Agent (bsp_default), saving results to {default_output_csv_path}")
+        # print(f"--> Optimized BSP policy will be saved to (if not loading): {default_policy_save_path}")
+
+        # --- To make COP the default, uncomment below and comment/remove other defaults ---
         # print("INFO: No command-line arguments. Using default COP run.")
         # default_output_csv_path = './src/results/exp_cop_default.csv'
         # default_policy_save_path = './src/results/policies/cop_optimized_default.npy'
@@ -209,7 +225,7 @@ if __name__ == "__main__":
         #    '--start_seed', '42',
         #    '--num_seeds', '1',
         #    '--output_file', default_output_csv_path,
-        #    '--save_policy_file', default_policy_save_path # Use generic arg name
+        #    '--save_policy_file', default_policy_save_path
         # ])
         # print(f"--> Defaulting to: COP Agent (cop_default), saving results to {default_output_csv_path}")
         # print(f"--> Optimized COP policy will be saved to (if not loading): {default_policy_save_path}")
@@ -226,14 +242,11 @@ if __name__ == "__main__":
         if output_dir: os.makedirs(output_dir, exist_ok=True)
         print(f"Results will be saved/appended to: {abs_output_path}")
 
-    # Handle policy file paths after parsing, using generic arg names
     if args.save_policy_file:
          abs_save_policy_path = os.path.abspath(args.save_policy_file)
          save_dir = os.path.dirname(abs_save_policy_path)
          if save_dir : os.makedirs(save_dir, exist_ok=True)
-         # Note: The actual filename generation (with seed, agent type) happens in run_experiment
-         # Here, we are just ensuring the directory exists for the user-provided base path.
-         args.save_policy_file = abs_save_policy_path # Store the potentially modified absolute path
+         args.save_policy_file = abs_save_policy_path
 
     if args.load_policy_file:
         abs_load_policy_path = os.path.abspath(args.load_policy_file)
@@ -262,17 +275,45 @@ if __name__ == "__main__":
         print(f"\nSaving results to {abs_output_path}...")
         file_exists = os.path.exists(abs_output_path)
 
-        header_base = [
-            "Seed", "Timestamp", "Env_Name", "Agent_Name", "Agent_Config",
+        # Dynamically build header from the keys of the first result, ensuring consistent order for base keys
+        # and then adding any extra keys (like specific agent params or more episode rewards)
+        base_keys_ordered = [
+            "Seed", "Timestamp", "Env_Name", "Agent_Name", "Agent_Type", "Agent_Config_File",
             "Num_Eval_Episodes", "Avg_Reward", "StdDev_Reward", "Min_Reward",
-            "Max_Reward", "Policy_File" # Generic header name
+            "Max_Reward", "Policy_File"
         ]
-        episode_headers = [f"Reward_Ep{i+1}" for i in range(max_episodes_across_runs)]
-        full_header = header_base + episode_headers
+        # Add BSP-EW specific keys if present in any result for the header
+        bsp_ew_keys = ["EW_Method", "EW_Horizon_R"]
+
+
+        # Collect all unique keys from all_results to form the header
+        all_keys_in_results = set()
+        for res_dict in all_results:
+            all_keys_in_results.update(res_dict.keys())
+
+        # Start with base keys, then add specific known keys, then others
+        header_set = set(base_keys_ordered)
+        full_header = list(base_keys_ordered) # Make a copy
+
+        for k in bsp_ew_keys: # Add BSP_EW specific keys if they were added
+            if k in all_keys_in_results and k not in header_set:
+                full_header.append(k)
+                header_set.add(k)
+
+        # Add episode reward keys sorted
+        episode_reward_keys = sorted([k for k in all_keys_in_results if k.startswith("Reward_Ep") and k not in header_set],
+                                     key=lambda x: int(x.replace("Reward_Ep", "")))
+        full_header.extend(episode_reward_keys)
+        header_set.update(episode_reward_keys)
+
+        # Add any remaining keys (should be none if logic above is comprehensive)
+        remaining_keys = sorted([k for k in all_keys_in_results if k not in header_set])
+        full_header.extend(remaining_keys)
+
 
         try:
             with open(abs_output_path, 'a', newline='') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=full_header, restval='')
+                writer = csv.DictWriter(csvfile, fieldnames=full_header, restval='') # Use restval for missing keys
                 if not file_exists or os.path.getsize(abs_output_path) == 0:
                     writer.writeheader()
                 writer.writerows(all_results)
