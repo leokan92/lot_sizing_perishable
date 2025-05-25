@@ -1,11 +1,16 @@
 {
     "agent_type": "bsp_ew",
     "params": {
-        "num_candidate_policies": 50,
-        "num_optimize_eval_episodes": 5,
-        "num_final_eval_episodes": 10,
+        "num_candidate_policies": 150,
+        "num_optimize_eval_episodes": 50,
+        "num_final_eval_episodes": 30,
         "base_stock_level_options": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20],
-        "waste_estimation_method": "closed_form_approx",
-        "waste_horizon_review_periods": 1
+        "waste_estimation_method": "deterministic_simulation",
+        "waste_horizon_review_periods": 3,
+        "logger_settings": {
+        "log_step_details": true,
+        "log_dir": "./src/results/simulation_logs/",
+        "log_actions": true
+      }
     }
 }

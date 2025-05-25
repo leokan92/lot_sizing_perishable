@@ -1,1 +1,3 @@
 src/results/
+src/analysis/*
+!src/analysis/results_analyzer.py
