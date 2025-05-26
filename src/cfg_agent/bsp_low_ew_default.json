@@ -1,13 +1,15 @@
 {
-    "agent_type": "bsp_ew",
+    "agent_type": "bsp_e_low",
     "params": {
         "num_candidate_policies": 200,
         "num_optimize_eval_episodes": 30,
         "num_final_eval_episodes": 50,
-        "base_stock_level_options": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22, 24, 26],
+        "s1_options": [3, 4, 5, 7, 9, 10, 12, 14, 15, 18, 20, 22, 24, 26, 28, 30],
+        "s2_options": [3, 4, 5, 7, 9, 10, 12, 14, 15, 18, 20, 22, 24, 26, 28, 30],
+        "b_options": [1, 2, 3, 4, 5, 7, 9, 10, 12, 14, 15, 18, 20, 22, 24, 26, 28, 30],
         "waste_estimation_method": "deterministic_simulation",
-        "waste_horizon_review_periods": 1, 
-        "num_ew_demand_sim_paths": 40, 
+        "waste_horizon_review_periods": 1,
+        "num_ew_demand_sim_paths": 40,
         "logger_settings": {
             "log_step_details": true,
             "log_dir": "./src/results/simulation_logs/",

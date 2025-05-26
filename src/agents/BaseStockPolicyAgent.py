@@ -24,9 +24,11 @@ class BaseStockPolicyAgent:
                  load_policy_path: str = None,
                  save_policy_path: str = None,
                  logger_settings: dict = None,
+                 optimize_on_init: bool = True,
                  **other_kwargs):
 
         self.env = env
+        self.optimized_policy = None
         self.num_candidate_policies = num_candidate_policies
         self.num_optimize_eval_episodes = num_optimize_eval_episodes
         self.num_final_eval_episodes = num_final_eval_episodes
@@ -157,9 +159,6 @@ class BaseStockPolicyAgent:
         best_bsp_policy = np.zeros_like(self.env.action_space.sample(), dtype=np.float32) 
         if not self.base_stock_level_options and self.num_candidate_policies > 0:
             print("Warning: base_stock_level_options is empty. Optimization will likely result in a zero policy.")
-            # Potentially generate one candidate with all zeros if that makes sense
-            # or return the best_bsp_policy as is (all zeros).
-            # For now, we let it proceed, it will generate all-zero policies.
 
         if self.num_candidate_policies == 0 :
             print("Warning: num_candidate_policies is 0. Returning initial zero policy.")

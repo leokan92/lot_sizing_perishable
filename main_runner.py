@@ -9,17 +9,19 @@ import importlib
 import pandas as pd # For reading the CSV batch file
 from datetime import datetime
 
-# --- Utility Functions (set_seed, load_config, get_agent_class) ---
-# These remain unchanged
 def set_seed(seed_value):
     np.random.seed(seed_value)
     random.seed(seed_value)
+    # Python's hash seed for consistent dict iteration (for some versions)
+    os.environ['PYTHONHASHSEED'] = str(seed_value)
     try:
         import torch
         torch.manual_seed(seed_value)
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed_value)
             torch.cuda.manual_seed_all(seed_value)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
     except ImportError: pass
     print(f"Seeds set to: {seed_value}")
 
@@ -37,22 +39,20 @@ def get_agent_class(agent_type_name):
         "fixed": ("FixedPolicyAgent", "src.agents.FixedPolicyAgent"),
         "cop": ("ConstantOrderPolicyAgent", "src.agents.ConstantOrderPolicyAgent"),
         "bsp": ("BaseStockPolicyAgent", "src.agents.BaseStockPolicyAgent"),
-        "bsp_ew": ("BSPEWAgent", "src.agents.BSPEWAgent")
+        "bsp_ew": ("BSPEWAgent", "src.agents.BSPEWAgent"),
+        "bsp_e_low": ("BSPEWLowAgent", "src.agents.BSPEWLowAgent") # Added new agent
     }
     if agent_type_name not in agent_mapping:
-        raise ValueError(f"Unknown agent type: '{agent_type_name}'")
+        raise ValueError(f"Unknown agent type: '{agent_type_name}'. Available: {list(agent_mapping.keys())}")
     class_name, module_path = agent_mapping[agent_type_name]
     try:
         module = importlib.import_module(module_path)
         return getattr(module, class_name)
     except ModuleNotFoundError:
-        print(f"Error: Agent module not found: {module_path}", file=sys.stderr); sys.exit(1)
+        print(f"Error: Agent module not found: {module_path}. Ensure it's in PYTHONPATH or current structure is correct.", file=sys.stderr); sys.exit(1)
     except AttributeError:
         print(f"Error: Agent class '{class_name}' not found in {module_path}", file=sys.stderr); sys.exit(1)
 
-# --- Main Execution Logic ---
-# MODIFIED: run_experiment now takes exp_config (a dict/Series from the CSV row)
-# and default_config_dirs (a dict for env and agent config dirs)
 def run_experiment(exp_config, current_seed, default_config_dirs):
     """Sets up and runs a single experiment for a GIVEN seed, based on exp_config."""
     print(f"\n===== Running Experiment for Seed: {current_seed} =====")
@@ -75,21 +75,26 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
         from src.scenarioManager.stochasticDemandModel import StochasticDemandModel
         from src.envs.perishableInvEnv import PerishableInvEnv
     except ImportError as e: print(f"Error importing environment/model: {e}", file=sys.stderr); sys.exit(1)
-    
-    env_settings.setdefault('time_horizon', 10)
+
+    env_settings.setdefault('time_horizon', 50) # Default if not specified
     env_settings.setdefault('dict_obs', False)
 
     try:
         stoch_model = StochasticDemandModel(env_settings)
     except Exception as e:
-         print(f"Warning: StochasticDemandModel init failed: {e}. Using placeholder.", file=sys.stderr)
+         print(f"Warning: StochasticDemandModel init failed: {e}. Using placeholder demand model.", file=sys.stderr)
          class PlaceholderDemandModel:
              def __init__(self, settings_dict):
-                 self.rng = np.random.default_rng(current_seed)
+                 self.rng = np.random.default_rng(settings_dict.get('seed', None)) # Use seed from settings
                  self.n_items = settings_dict.get('n_items', 1)
+                 self.mean_demands = settings_dict.get('mean_demands_per_item', np.ones(self.n_items)) # Store mean demands
              def generate_scenario(self, n_time_steps):
-                 return np.zeros((self.n_items, n_time_steps), dtype=int)
+                 scenario = np.zeros((self.n_items, n_time_steps), dtype=int)
+                 for i in range(self.n_items):
+                    scenario[i,:] = self.rng.poisson(self.mean_demands[i], size=n_time_steps)
+                 return scenario
          stoch_model = PlaceholderDemandModel(env_settings)
+
     env = PerishableInvEnv(env_settings, stoch_model, seed=current_seed)
 
     # Setup Agent
@@ -100,72 +105,83 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
 
     AgentClass = get_agent_class(agent_type)
     print(f"Initializing agent '{exp_config['agent_name']}' (Type: {agent_type})...")
-    
+
     policy_file_path_used_for_run = None
-    
-    # Use policy paths from exp_config (which came from the CSV)
-    # Ensure that NaN or empty strings from CSV are treated as None
+
     load_policy_path_from_csv = exp_config.get('load_policy_file')
     if pd.isna(load_policy_path_from_csv) or not str(load_policy_path_from_csv).strip():
         load_policy_path_from_csv = None
-    
+
     save_policy_path_from_csv = exp_config.get('save_policy_file')
     if pd.isna(save_policy_path_from_csv) or not str(save_policy_path_from_csv).strip():
         save_policy_path_from_csv = None
 
-
-    if agent_type in ["cop", "bsp", "bsp_ew"]:
+    # Agents that support policy load/save
+    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_e_low"]
+    if agent_type in policy_handling_agents:
         agent_params['load_policy_path'] = load_policy_path_from_csv
         if load_policy_path_from_csv:
             abs_load_path = os.path.abspath(load_policy_path_from_csv)
             if not os.path.exists(abs_load_path):
-                print(f"Error: Cannot load policy - file not found: {abs_load_path}", file=sys.stderr)
-                # Decide if to exit or continue without loading
-                agent_params['load_policy_path'] = None # Don't attempt to load
+                print(f"Error: Cannot load policy - file not found: {abs_load_path}. Agent will optimize.", file=sys.stderr)
+                agent_params['load_policy_path'] = None # Don't attempt to load, proceed to optimize
             else:
                 agent_params['load_policy_path'] = abs_load_path
             policy_file_path_used_for_run = agent_params['load_policy_path']
-            agent_params['save_policy_path'] = None # Don't save if loading a specific file
-        
-        elif save_policy_path_from_csv:
+            # If loading, generally don't save unless a *different* save path is also specified
+            if not save_policy_path_from_csv or save_policy_path_from_csv == load_policy_path_from_csv :
+                 agent_params['save_policy_path'] = None
+            else: # A different save path is specified, so allow saving
+                 # Construct the save path as before
+                abs_save_path = os.path.abspath(save_policy_path_from_csv)
+                save_dir = os.path.dirname(abs_save_path)
+                if save_dir: os.makedirs(save_dir, exist_ok=True)
+                base_name = os.path.basename(abs_save_path)
+                name, ext = os.path.splitext(base_name)
+                ext = ext or '.npy'
+                if exp_config.get('num_seeds', 1) > 1:
+                    save_filename = f"{name}_seed{current_seed}{ext}"
+                else:
+                    save_filename = f"{name}{ext}"
+                agent_params['save_policy_path'] = os.path.join(save_dir, save_filename)
+                policy_file_path_used_for_run = agent_params['save_policy_path'] # Update to reflect actual save path
+
+        elif save_policy_path_from_csv: # Not loading, but saving
             abs_save_path = os.path.abspath(save_policy_path_from_csv)
             save_dir = os.path.dirname(abs_save_path)
             if save_dir: os.makedirs(save_dir, exist_ok=True)
-            
+
             base_name = os.path.basename(abs_save_path)
             name, ext = os.path.splitext(base_name)
             ext = ext or '.npy'
-            # Add seed to filename if multiple seeds are run for THIS specific campaign in the CSV
             if exp_config.get('num_seeds', 1) > 1:
                 save_filename = f"{name}_seed{current_seed}{ext}"
             else:
-                save_filename = f"{name}{ext}" # Use name as is if only one seed for this campaign
-            
+                save_filename = f"{name}{ext}"
+
             final_save_path = os.path.join(save_dir, save_filename)
             agent_params['save_policy_path'] = final_save_path
             policy_file_path_used_for_run = final_save_path
-        else:
-            agent_params['save_policy_path'] = None # No save path specified in CSV
-    else:
+        else: # Neither loading nor saving specified from CSV
+            agent_params['save_policy_path'] = None
+    else: # Agents not in policy_handling_agents
         agent_params['load_policy_path'] = None
         agent_params['save_policy_path'] = None
-    
+
     if policy_file_path_used_for_run:
         print(f"Policy file associated with this run: {policy_file_path_used_for_run}")
 
-    if "logger_settings" not in agent_params: agent_params["logger_settings"] = {} 
+    if "logger_settings" not in agent_params: agent_params["logger_settings"] = {}
     experiment_log_name = f"{exp_config['env_name']}_{exp_config['agent_name']}_{agent_type}_seed{current_seed}"
     agent_params["logger_settings"]["experiment_name"] = experiment_log_name
     if "log_dir" not in agent_params["logger_settings"]:
-        # Default log_dir if not specified in agent's JSON config
-        # This assumes 'src' is in CWD or cwd is project root.
-        # For more robustness, derive from script location or pass as default.
-        # For now, using a path relative to where main_runner.py is typically run from (project root).
-        project_root = os.getcwd() # Or determine more robustly if needed
+        project_root = os.getcwd()
         default_log_dir = os.path.join(project_root, "src", "results", "simulation_logs")
         agent_params["logger_settings"]["log_dir"] = default_log_dir
     else:
-        agent_params["logger_settings"]["log_dir"] = os.path.abspath(agent_params["logger_settings"]["log_dir"])
+        # Ensure log_dir is absolute, if it's relative, make it relative to project root or specified path
+        if not os.path.isabs(agent_params["logger_settings"]["log_dir"]):
+            agent_params["logger_settings"]["log_dir"] = os.path.abspath(agent_params["logger_settings"]["log_dir"])
 
     start_agent_init = time.time()
     agent = AgentClass(env, **agent_params)
@@ -174,50 +190,68 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
 
     print(f"\n--- Starting Final Evaluation Run ---")
     start_run = time.time()
-    
-    # Get render/verbose flags from exp_config
-    render_steps = str(exp_config.get('render', 'FALSE')).upper() in ['TRUE', '1']
-    verbose_steps = str(exp_config.get('verbose', 'FALSE')).upper() in ['TRUE', '1']
+
+    render_steps = str(exp_config.get('render', 'FALSE')).upper() in ['TRUE', '1', 'T']
+    verbose_steps = str(exp_config.get('verbose', 'FALSE')).upper() in ['TRUE', '1', 'T']
 
     episode_rewards = agent.run(render_steps=render_steps, verbose=verbose_steps)
     end_run = time.time()
     print(f"Simulation run took {end_run - start_run:.2f} seconds.")
 
-    if episode_rewards:
+    avg_reward, std_dev_reward, min_r, max_r = -np.inf, 0, -np.inf, -np.inf
+    if episode_rewards and len(episode_rewards) > 0 :
         avg_reward, std_dev_reward = np.mean(episode_rewards), np.std(episode_rewards)
         min_r, max_r = np.min(episode_rewards), np.max(episode_rewards)
         print(f"Run Summary (Seed {current_seed}): Episodes: {len(episode_rewards)}, "
               f"Avg: {avg_reward:.2f}, StdDev: {std_dev_reward:.2f}, "
               f"Min: {min_r:.2f}, Max: {max_r:.2f}")
-        for i, ep_r in enumerate(episode_rewards): print(f"  Reward_Ep{i+1}: {ep_r:.2f}")
-    else: print(f"Run Summary (Seed {current_seed}): No episode rewards reported.")
+    else: print(f"Run Summary (Seed {current_seed}): No episode rewards reported or empty list.")
 
     env.close()
     print(f"===== Experiment for Seed: {current_seed} Finished =====")
+    # Return results for potential aggregation
+    return {
+        'env_name': exp_config['env_name'],
+        'agent_name': exp_config['agent_name'],
+        'agent_type': agent_type,
+        'seed': current_seed,
+        'avg_reward': avg_reward,
+        'std_reward': std_dev_reward,
+        'min_reward': min_r,
+        'max_reward': max_r,
+        'num_episodes': len(episode_rewards) if episode_rewards else 0,
+        'policy_file': policy_file_path_used_for_run if policy_file_path_used_for_run else "N/A (Optimized or Fixed)"
+    }
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Perishable Inventory Experiment Batches from CSV")
     parser.add_argument(
-        '--batch_file', 
-        type=str, 
-        default='./src/cfg_experiments/experiments_batch.csv',  # Default path
+        '--batch_file',
+        type=str,
+        default='./src/cfg_experiments/experiments_batch.csv',
         help='Path to the CSV file defining experiment batches.'
     )
     parser.add_argument(
-        '--default_env_config_dir', 
-        type=str, 
+        '--default_env_config_dir',
+        type=str,
         default='./src/cfg_env',
         help='Default directory for environment JSON configurations.'
     )
     parser.add_argument(
-        '--default_agent_config_dir', 
-        type=str, 
+        '--default_agent_config_dir',
+        type=str,
         default='./src/cfg_agent',
         help='Default directory for agent JSON configurations.'
     )
+    parser.add_argument(
+        '--results_output_csv',
+        type=str,
+        default=None, # Default to no CSV output unless specified
+        help='Optional path to save aggregated experiment results to a CSV file.'
+    )
     cli_args = parser.parse_args()
 
-    # Ensure default config dirs are absolute
     default_config_dirs = {
         'env': os.path.abspath(cli_args.default_env_config_dir),
         'agent': os.path.abspath(cli_args.default_agent_config_dir)
@@ -235,31 +269,49 @@ if __name__ == "__main__":
         print(f"Error reading batch CSV file: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Found {len(experiments_df)} experiment configurations in batch file.")
-    
-    # Convert potential boolean-like strings to actual booleans for safety,
-    # though run_experiment handles string versions too.
-    bool_cols = ['render', 'verbose']
-    for col in bool_cols:
+    # Data cleaning for CSV columns that might be read as objects but should be numbers/strings
+    for col in ['start_seed', 'num_seeds']:
         if col in experiments_df.columns:
-            experiments_df[col] = experiments_df[col].astype(str).str.upper().isin(['TRUE', '1'])
+            experiments_df[col] = pd.to_numeric(experiments_df[col], errors='coerce').fillna(0).astype(int)
 
+    for col in ['env_name', 'agent_name', 'load_policy_file', 'save_policy_file', 'env_config_dir', 'agent_config_dir']:
+         if col in experiments_df.columns:
+            experiments_df[col] = experiments_df[col].astype(str).str.strip().replace({'nan': None, 'None': None, '': None})
+
+
+    print(f"Found {len(experiments_df)} experiment configurations in batch file.")
 
     total_campaigns_start_time = time.time()
-    
+    all_results = [] # To store results from each run_experiment call
+
     for index, exp_row in experiments_df.iterrows():
         print(f"\n\n--- Starting Experiment Campaign {index + 1}/{len(experiments_df)} ---")
         print(f"Details: Env='{exp_row['env_name']}', Agent='{exp_row['agent_name']}'")
 
-        start_seed = int(exp_row['start_seed'])
-        num_seeds = int(exp_row['num_seeds'])
+        start_seed = int(exp_row.get('start_seed', 0)) # Default to 0 if not specified
+        num_seeds = int(exp_row.get('num_seeds', 1))   # Default to 1 if not specified
 
         for i in range(num_seeds):
             current_run_seed = start_seed + i
-            # Pass the Series exp_row which acts like a dictionary
-            run_experiment(exp_row, current_run_seed, default_config_dirs) 
-    
+            exp_result = run_experiment(exp_row, current_run_seed, default_config_dirs)
+            if exp_result: # run_experiment now returns a dict
+                all_results.append(exp_result)
+
     total_campaigns_end_time = time.time()
     print(f"\n--- All Experiment Campaigns Complete ({total_campaigns_end_time - total_campaigns_start_time:.2f}s) ---")
+
+    if cli_args.results_output_csv and all_results:
+        results_df = pd.DataFrame(all_results)
+        try:
+            output_path = os.path.abspath(cli_args.results_output_csv)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True) # Ensure directory exists
+            results_df.to_csv(output_path, index=False)
+            print(f"\nAggregated experiment results saved to: {output_path}")
+        except Exception as e:
+            print(f"\nError saving results to CSV {cli_args.results_output_csv}: {e}", file=sys.stderr)
+    elif cli_args.results_output_csv:
+        print("\nNo results to save to CSV (all_results list is empty).")
+
+
     print(f"\nDetailed simulation logs (if enabled in agent's JSON config) are saved in the agent's configured log directory.")
     print("main_runner.py finished.")
