@@ -52,10 +52,10 @@ class PerishableInvEnv(gym.Env):
             self.initial_inventory_value = np.zeros_like(self.initial_inventory_age, dtype=float)
             for i in range(self.n_items):
                  self.initial_inventory_value[i, :] = self.initial_inventory_age[i, :] * self.min_purchase_costs_per_item[i]
-            print("Info: 'initial_inventory_value' not specified in settings. Initializing value using minimum purchase costs.")
+            #print("Info: 'initial_inventory_value' not specified in settings. Initializing value using minimum purchase costs.")
         elif isinstance(self.initial_inventory_value_setting, (int, float)) and self.initial_inventory_value_setting == 0:
              self.initial_inventory_value = np.zeros_like(self.initial_inventory_age, dtype=float)
-             print("Info: 'initial_inventory_value' set to 0 in settings. Initializing inventory value to zero.")
+             #print("Info: 'initial_inventory_value' set to 0 in settings. Initializing inventory value to zero.")
         else:
             # Assume it's a numpy array compatible with initial_inventory_age
             try:
@@ -135,7 +135,7 @@ class PerishableInvEnv(gym.Env):
             'current_step': self.current_step
         }
         return obs
-
+    
     # --- _get_outstanding_orders_state remains the same ---
     def _get_outstanding_orders_state(self):
         outstanding = np.zeros(self.n_items, dtype=int)

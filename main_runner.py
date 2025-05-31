@@ -40,7 +40,7 @@ def get_agent_class(agent_type_name):
         "cop": ("ConstantOrderPolicyAgent", "src.agents.ConstantOrderPolicyAgent"),
         "bsp": ("BaseStockPolicyAgent", "src.agents.BaseStockPolicyAgent"),
         "bsp_ew": ("BSPEWAgent", "src.agents.BSPEWAgent"),
-        "bsp_e_low": ("BSPEWLowAgent", "src.agents.BSPEWLowAgent") # Added new agent
+        "bsp_ew_low": ("BSPEWLowAgent", "src.agents.BSPEWLowAgent") # Added new agent
     }
     if agent_type_name not in agent_mapping:
         raise ValueError(f"Unknown agent type: '{agent_type_name}'. Available: {list(agent_mapping.keys())}")
@@ -117,7 +117,7 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
         save_policy_path_from_csv = None
 
     # Agents that support policy load/save
-    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_e_low"]
+    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_ew_low"]
     if agent_type in policy_handling_agents:
         agent_params['load_policy_path'] = load_policy_path_from_csv
         if load_policy_path_from_csv:
