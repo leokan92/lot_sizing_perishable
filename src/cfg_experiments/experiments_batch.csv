@@ -1,5 +1,6 @@
 env_name,agent_name,start_seed,num_seeds,load_policy_file,save_policy_file,render,verbose
-setting_1,bsp_ew_low_default,42,1,,./src/results/policies/s2_ew_default_optimized.npy,FALSE,FALSE
+setting_1,ga_meta_heuristic_default,42,1,,./src/results/policies/s2_ga_meta_heuristic_default_optimized.npy,FALSE,FALSE
+setting_1,bsp_ew_low_default,42,1,,./src/results/policies/s2_bsp_ew_low_default_optimized.npy,FALSE,FALSE
 setting_1,bsp_ew_default,42,1,,./src/results/policies/s2_bsp_ew_default_optimized.npy,FALSE,FALSE
 setting_1,cop_default,42,1,,./src/results/policies/s2_cop_default_optimized.npy,FALSE,FALSE
 setting_1,bsp_default,42,1,,./src/results/policies/s2_bsp_default_optimized.npy,FALSE,FALSE

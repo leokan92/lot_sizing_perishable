@@ -40,7 +40,8 @@ def get_agent_class(agent_type_name):
         "cop": ("ConstantOrderPolicyAgent", "src.agents.ConstantOrderPolicyAgent"),
         "bsp": ("BaseStockPolicyAgent", "src.agents.BaseStockPolicyAgent"),
         "bsp_ew": ("BSPEWAgent", "src.agents.BSPEWAgent"),
-        "bsp_ew_low": ("BSPEWLowAgent", "src.agents.BSPEWLowAgent") # Added new agent
+        "bsp_ew_low": ("BSPEWLowAgent", "src.agents.BSPEWLowAgent"),
+        "ga_meta_heuristic": ("GAMetaHeuristicAgent", "src.agents.GAMetaHeuristicAgent") # ADDED
     }
     if agent_type_name not in agent_mapping:
         raise ValueError(f"Unknown agent type: '{agent_type_name}'. Available: {list(agent_mapping.keys())}")
@@ -117,34 +118,40 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
         save_policy_path_from_csv = None
 
     # Agents that support policy load/save
-    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_ew_low"]
+    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_ew_low", "ga_meta_heuristic"] # ADDED ga_meta_heuristic
     if agent_type in policy_handling_agents:
         agent_params['load_policy_path'] = load_policy_path_from_csv
         if load_policy_path_from_csv:
             abs_load_path = os.path.abspath(load_policy_path_from_csv)
             if not os.path.exists(abs_load_path):
                 print(f"Error: Cannot load policy - file not found: {abs_load_path}. Agent will optimize.", file=sys.stderr)
-                agent_params['load_policy_path'] = None # Don't attempt to load, proceed to optimize
+                agent_params['load_policy_path'] = None
             else:
                 agent_params['load_policy_path'] = abs_load_path
             policy_file_path_used_for_run = agent_params['load_policy_path']
-            # If loading, generally don't save unless a *different* save path is also specified
+
             if not save_policy_path_from_csv or save_policy_path_from_csv == load_policy_path_from_csv :
                  agent_params['save_policy_path'] = None
-            else: # A different save path is specified, so allow saving
-                 # Construct the save path as before
+            else:
                 abs_save_path = os.path.abspath(save_policy_path_from_csv)
                 save_dir = os.path.dirname(abs_save_path)
                 if save_dir: os.makedirs(save_dir, exist_ok=True)
                 base_name = os.path.basename(abs_save_path)
                 name, ext = os.path.splitext(base_name)
-                ext = ext or '.npy'
+                
+                # MODIFIED: Default extension based on agent type
+                if not ext: # If no extension was provided in the CSV
+                    if agent_type == "ga_meta_heuristic":
+                        ext = '.json'
+                    else:
+                        ext = '.npy'
+                
                 if exp_config.get('num_seeds', 1) > 1:
                     save_filename = f"{name}_seed{current_seed}{ext}"
                 else:
                     save_filename = f"{name}{ext}"
                 agent_params['save_policy_path'] = os.path.join(save_dir, save_filename)
-                policy_file_path_used_for_run = agent_params['save_policy_path'] # Update to reflect actual save path
+                policy_file_path_used_for_run = agent_params['save_policy_path']
 
         elif save_policy_path_from_csv: # Not loading, but saving
             abs_save_path = os.path.abspath(save_policy_path_from_csv)
@@ -153,7 +160,14 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
 
             base_name = os.path.basename(abs_save_path)
             name, ext = os.path.splitext(base_name)
-            ext = ext or '.npy'
+
+            # MODIFIED: Default extension based on agent type
+            if not ext: # If no extension was provided in the CSV
+                if agent_type == "ga_meta_heuristic":
+                    ext = '.json'
+                else:
+                    ext = '.npy'
+            
             if exp_config.get('num_seeds', 1) > 1:
                 save_filename = f"{name}_seed{current_seed}{ext}"
             else:
@@ -175,13 +189,15 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
     experiment_log_name = f"{exp_config['env_name']}_{exp_config['agent_name']}_{agent_type}_seed{current_seed}"
     agent_params["logger_settings"]["experiment_name"] = experiment_log_name
     if "log_dir" not in agent_params["logger_settings"]:
-        project_root = os.getcwd()
+        project_root = os.getcwd() # Assumes runner is in project root or similar
         default_log_dir = os.path.join(project_root, "src", "results", "simulation_logs")
         agent_params["logger_settings"]["log_dir"] = default_log_dir
     else:
-        # Ensure log_dir is absolute, if it's relative, make it relative to project root or specified path
         if not os.path.isabs(agent_params["logger_settings"]["log_dir"]):
-            agent_params["logger_settings"]["log_dir"] = os.path.abspath(agent_params["logger_settings"]["log_dir"])
+            # Assuming relative paths for log_dir in config are relative to project root
+            project_root = os.getcwd()
+            agent_params["logger_settings"]["log_dir"] = os.path.abspath(os.path.join(project_root, agent_params["logger_settings"]["log_dir"]))
+
 
     start_agent_init = time.time()
     agent = AgentClass(env, **agent_params)
@@ -209,7 +225,6 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
 
     env.close()
     print(f"===== Experiment for Seed: {current_seed} Finished =====")
-    # Return results for potential aggregation
     return {
         'env_name': exp_config['env_name'],
         'agent_name': exp_config['agent_name'],
@@ -247,7 +262,7 @@ if __name__ == "__main__":
     parser.add_argument(
         '--results_output_csv',
         type=str,
-        default=None, # Default to no CSV output unless specified
+        default=None, 
         help='Optional path to save aggregated experiment results to a CSV file.'
     )
     cli_args = parser.parse_args()
@@ -269,32 +284,31 @@ if __name__ == "__main__":
         print(f"Error reading batch CSV file: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Data cleaning for CSV columns that might be read as objects but should be numbers/strings
     for col in ['start_seed', 'num_seeds']:
         if col in experiments_df.columns:
             experiments_df[col] = pd.to_numeric(experiments_df[col], errors='coerce').fillna(0).astype(int)
 
     for col in ['env_name', 'agent_name', 'load_policy_file', 'save_policy_file', 'env_config_dir', 'agent_config_dir']:
          if col in experiments_df.columns:
-            experiments_df[col] = experiments_df[col].astype(str).str.strip().replace({'nan': None, 'None': None, '': None})
+            experiments_df[col] = experiments_df[col].astype(str).str.strip().replace({'nan': None, 'None': None, '': None, 'nan': pd.NA})
 
 
     print(f"Found {len(experiments_df)} experiment configurations in batch file.")
 
     total_campaigns_start_time = time.time()
-    all_results = [] # To store results from each run_experiment call
+    all_results = [] 
 
     for index, exp_row in experiments_df.iterrows():
         print(f"\n\n--- Starting Experiment Campaign {index + 1}/{len(experiments_df)} ---")
         print(f"Details: Env='{exp_row['env_name']}', Agent='{exp_row['agent_name']}'")
 
-        start_seed = int(exp_row.get('start_seed', 0)) # Default to 0 if not specified
-        num_seeds = int(exp_row.get('num_seeds', 1))   # Default to 1 if not specified
+        start_seed = int(exp_row.get('start_seed', 0)) 
+        num_seeds = int(exp_row.get('num_seeds', 1))   
 
         for i in range(num_seeds):
             current_run_seed = start_seed + i
-            exp_result = run_experiment(exp_row, current_run_seed, default_config_dirs)
-            if exp_result: # run_experiment now returns a dict
+            exp_result = run_experiment(exp_row.copy(), current_run_seed, default_config_dirs) # Pass a copy of exp_row
+            if exp_result: 
                 all_results.append(exp_result)
 
     total_campaigns_end_time = time.time()
@@ -304,7 +318,7 @@ if __name__ == "__main__":
         results_df = pd.DataFrame(all_results)
         try:
             output_path = os.path.abspath(cli_args.results_output_csv)
-            os.makedirs(os.path.dirname(output_path), exist_ok=True) # Ensure directory exists
+            os.makedirs(os.path.dirname(output_path), exist_ok=True) 
             results_df.to_csv(output_path, index=False)
             print(f"\nAggregated experiment results saved to: {output_path}")
         except Exception as e:
