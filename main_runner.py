@@ -41,7 +41,7 @@ def get_agent_class(agent_type_name):
         "bsp": ("BaseStockPolicyAgent", "src.agents.BaseStockPolicyAgent"),
         "bsp_ew": ("BSPEWAgent", "src.agents.BSPEWAgent"),
         "bsp_ew_low": ("BSPEWLowAgent", "src.agents.BSPEWLowAgent"),
-        "ga_meta_heuristic": ("GAMetaHeuristicAgent", "src.agents.GAMetaHeuristicAgent") # ADDED
+        "pymoo_meta_heuristic": ("PymooMetaHeuristicAgent", "src.agents.PymooMetaHeuristicAgent")
     }
     if agent_type_name not in agent_mapping:
         raise ValueError(f"Unknown agent type: '{agent_type_name}'. Available: {list(agent_mapping.keys())}")
@@ -56,8 +56,11 @@ def get_agent_class(agent_type_name):
 
 def run_experiment(exp_config, current_seed, default_config_dirs):
     """Sets up and runs a single experiment for a GIVEN seed, based on exp_config."""
+    # ADDED: Capture the start time of the entire experiment run
+    execution_timestamp = datetime.now()
+
     print(f"\n===== Running Experiment for Seed: {current_seed} =====")
-    print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Timestamp: {execution_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Env_Name: {exp_config['env_name']}, Agent_Name: {exp_config['agent_name']}")
     set_seed(current_seed)
 
@@ -117,8 +120,7 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
     if pd.isna(save_policy_path_from_csv) or not str(save_policy_path_from_csv).strip():
         save_policy_path_from_csv = None
 
-    # Agents that support policy load/save
-    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_ew_low", "ga_meta_heuristic"] # ADDED ga_meta_heuristic
+    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_ew_low", "pymoo_meta_heuristic"]
     if agent_type in policy_handling_agents:
         agent_params['load_policy_path'] = load_policy_path_from_csv
         if load_policy_path_from_csv:
@@ -139,12 +141,9 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
                 base_name = os.path.basename(abs_save_path)
                 name, ext = os.path.splitext(base_name)
                 
-                # MODIFIED: Default extension based on agent type
-                if not ext: # If no extension was provided in the CSV
-                    if agent_type == "ga_meta_heuristic":
-                        ext = '.json'
-                    else:
-                        ext = '.npy'
+                if not ext:
+                    if agent_type == "pymoo_meta_heuristic": ext = '.json'
+                    else: ext = '.npy'
                 
                 if exp_config.get('num_seeds', 1) > 1:
                     save_filename = f"{name}_seed{current_seed}{ext}"
@@ -153,20 +152,16 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
                 agent_params['save_policy_path'] = os.path.join(save_dir, save_filename)
                 policy_file_path_used_for_run = agent_params['save_policy_path']
 
-        elif save_policy_path_from_csv: # Not loading, but saving
+        elif save_policy_path_from_csv:
             abs_save_path = os.path.abspath(save_policy_path_from_csv)
             save_dir = os.path.dirname(abs_save_path)
             if save_dir: os.makedirs(save_dir, exist_ok=True)
-
             base_name = os.path.basename(abs_save_path)
             name, ext = os.path.splitext(base_name)
-
-            # MODIFIED: Default extension based on agent type
-            if not ext: # If no extension was provided in the CSV
-                if agent_type == "ga_meta_heuristic":
-                    ext = '.json'
-                else:
-                    ext = '.npy'
+            
+            if not ext:
+                if agent_type == "pymoo_meta_heuristic": ext = '.json'
+                else: ext = '.npy'
             
             if exp_config.get('num_seeds', 1) > 1:
                 save_filename = f"{name}_seed{current_seed}{ext}"
@@ -176,9 +171,9 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
             final_save_path = os.path.join(save_dir, save_filename)
             agent_params['save_policy_path'] = final_save_path
             policy_file_path_used_for_run = final_save_path
-        else: # Neither loading nor saving specified from CSV
+        else:
             agent_params['save_policy_path'] = None
-    else: # Agents not in policy_handling_agents
+    else:
         agent_params['load_policy_path'] = None
         agent_params['save_policy_path'] = None
 
@@ -189,12 +184,11 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
     experiment_log_name = f"{exp_config['env_name']}_{exp_config['agent_name']}_{agent_type}_seed{current_seed}"
     agent_params["logger_settings"]["experiment_name"] = experiment_log_name
     if "log_dir" not in agent_params["logger_settings"]:
-        project_root = os.getcwd() # Assumes runner is in project root or similar
+        project_root = os.getcwd()
         default_log_dir = os.path.join(project_root, "src", "results", "simulation_logs")
         agent_params["logger_settings"]["log_dir"] = default_log_dir
     else:
         if not os.path.isabs(agent_params["logger_settings"]["log_dir"]):
-            # Assuming relative paths for log_dir in config are relative to project root
             project_root = os.getcwd()
             agent_params["logger_settings"]["log_dir"] = os.path.abspath(os.path.join(project_root, agent_params["logger_settings"]["log_dir"]))
 
@@ -202,7 +196,9 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
     start_agent_init = time.time()
     agent = AgentClass(env, **agent_params)
     end_agent_init = time.time()
-    print(f"Agent initialization/optimization took {end_agent_init - start_agent_init:.2f} seconds.")
+    # MODIFIED: Capture initialization/training time
+    init_and_train_time = end_agent_init - start_agent_init
+    print(f"Agent initialization/optimization took {init_and_train_time:.2f} seconds.")
 
     print(f"\n--- Starting Final Evaluation Run ---")
     start_run = time.time()
@@ -212,7 +208,9 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
 
     episode_rewards = agent.run(render_steps=render_steps, verbose=verbose_steps)
     end_run = time.time()
-    print(f"Simulation run took {end_run - start_run:.2f} seconds.")
+    # MODIFIED: Capture evaluation/simulation time
+    evaluation_time = end_run - start_run
+    print(f"Simulation run took {evaluation_time:.2f} seconds.")
 
     avg_reward, std_dev_reward, min_r, max_r = -np.inf, 0, -np.inf, -np.inf
     if episode_rewards and len(episode_rewards) > 0 :
@@ -225,11 +223,16 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
 
     env.close()
     print(f"===== Experiment for Seed: {current_seed} Finished =====")
+    
+    # MODIFIED: Add execution times and timestamp to the returned dictionary
     return {
+        'execution_timestamp': execution_timestamp.strftime('%Y-%m-%d %H:%M:%S'),
         'env_name': exp_config['env_name'],
         'agent_name': exp_config['agent_name'],
         'agent_type': agent_type,
         'seed': current_seed,
+        'init_train_time_s': init_and_train_time,
+        'evaluation_time_s': evaluation_time,
         'avg_reward': avg_reward,
         'std_reward': std_dev_reward,
         'min_reward': min_r,
@@ -240,6 +243,12 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
 
 
 if __name__ == "__main__":
+    # ADDED: Define default paths at the top level for consistency
+    project_root = os.getcwd()
+    default_log_dir = os.path.join(project_root, "src", "results", "simulation_logs")
+    default_results_filename = f"experiment_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    default_results_path = os.path.join(default_log_dir, default_results_filename)
+
     parser = argparse.ArgumentParser(description="Run Perishable Inventory Experiment Batches from CSV")
     parser.add_argument(
         '--batch_file',
@@ -259,11 +268,14 @@ if __name__ == "__main__":
         default='./src/cfg_agent',
         help='Default directory for agent JSON configurations.'
     )
+    # MODIFIED: Changed default from None to the new timestamped path.
+    # Now, by default, it will save a summary CSV with timings in the simulation log directory.
     parser.add_argument(
         '--results_output_csv',
         type=str,
-        default=None, 
-        help='Optional path to save aggregated experiment results to a CSV file.'
+        default=default_results_path,
+        help=f'Optional path to save aggregated experiment results to a CSV file. '
+             f'Defaults to a timestamped file in: {default_log_dir}'
     )
     cli_args = parser.parse_args()
 
@@ -296,31 +308,37 @@ if __name__ == "__main__":
     print(f"Found {len(experiments_df)} experiment configurations in batch file.")
 
     total_campaigns_start_time = time.time()
-    all_results = [] 
+    all_results = []
 
     for index, exp_row in experiments_df.iterrows():
         print(f"\n\n--- Starting Experiment Campaign {index + 1}/{len(experiments_df)} ---")
         print(f"Details: Env='{exp_row['env_name']}', Agent='{exp_row['agent_name']}'")
 
-        start_seed = int(exp_row.get('start_seed', 0)) 
-        num_seeds = int(exp_row.get('num_seeds', 1))   
+        start_seed = int(exp_row.get('start_seed', 0))
+        num_seeds = int(exp_row.get('num_seeds', 1))
 
         for i in range(num_seeds):
             current_run_seed = start_seed + i
-            exp_result = run_experiment(exp_row.copy(), current_run_seed, default_config_dirs) # Pass a copy of exp_row
-            if exp_result: 
+            # No changes needed here, as the new data is just appended to the list
+            exp_result = run_experiment(exp_row.copy(), current_run_seed, default_config_dirs)
+            if exp_result:
                 all_results.append(exp_result)
 
     total_campaigns_end_time = time.time()
     print(f"\n--- All Experiment Campaigns Complete ({total_campaigns_end_time - total_campaigns_start_time:.2f}s) ---")
-
     if cli_args.results_output_csv and all_results:
         results_df = pd.DataFrame(all_results)
+
+        for col in ['init_train_time_s', 'evaluation_time_s']:
+            if col in results_df.columns:
+                results_df[col] = results_df[col].apply(lambda x: f"{x:.4f}")
+
         try:
             output_path = os.path.abspath(cli_args.results_output_csv)
-            os.makedirs(os.path.dirname(output_path), exist_ok=True) 
+            # Ensure the directory for the output file exists
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
             results_df.to_csv(output_path, index=False)
-            print(f"\nAggregated experiment results saved to: {output_path}")
+            print(f"\nAggregated experiment results and timings saved to: {output_path}")
         except Exception as e:
             print(f"\nError saving results to CSV {cli_args.results_output_csv}: {e}", file=sys.stderr)
     elif cli_args.results_output_csv:
