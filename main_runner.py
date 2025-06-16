@@ -196,7 +196,6 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
     start_agent_init = time.time()
     agent = AgentClass(env, **agent_params)
     end_agent_init = time.time()
-    # MODIFIED: Capture initialization/training time
     init_and_train_time = end_agent_init - start_agent_init
     print(f"Agent initialization/optimization took {init_and_train_time:.2f} seconds.")
 
@@ -208,7 +207,6 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
 
     episode_rewards = agent.run(render_steps=render_steps, verbose=verbose_steps)
     end_run = time.time()
-    # MODIFIED: Capture evaluation/simulation time
     evaluation_time = end_run - start_run
     print(f"Simulation run took {evaluation_time:.2f} seconds.")
 
