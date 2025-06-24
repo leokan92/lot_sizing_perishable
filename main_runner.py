@@ -289,7 +289,7 @@ if __name__ == "__main__":
 
     print(f"Loading experiment batch from: {batch_file_path}")
     try:
-        experiments_df = pd.read_csv(batch_file_path)
+        experiments_df = pd.read_csv(batch_file_path, sep = ';')
     except Exception as e:
         print(f"Error reading batch CSV file: {e}", file=sys.stderr)
         sys.exit(1)
