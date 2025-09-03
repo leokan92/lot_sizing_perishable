@@ -211,8 +211,8 @@ class PymooMetaHeuristicAgent:
             algorithm = GA(
                 pop_size=pop_size,
                 sampling=IntegerRandomSampling(),
-                crossover=SinglePointCrossover(prob=algo_params.get("crossover_rate", 0.9)),
-                mutation=PolynomialMutation(prob=algo_params.get("mutation_rate", 0.1)),
+                crossover=SBX(prob=algo_params.get("crossover_rate", 0.9), eta=15),
+                mutation=PM(eta=20),
                 eliminate_duplicates=True
             )
         elif algo_name == "NSGA2":
