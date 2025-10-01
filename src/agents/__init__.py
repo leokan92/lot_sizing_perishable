@@ -1,13 +1,17 @@
-from .PPOAgent import PPOAgent
-from .PDPPOAgent import PDPPOAgent
-from .stableBaselineAgents import StableBaselineAgent
+from .BaseStockPolicyAgent import BaseStockPolicyAgent
+from .BSPEWAgent import BSPEWAgent
+from .BSPEWLowAgent import BSPEWLowAgent
+from .ConstantOrderPolicyAgent import ConstantOrderPolicyAgent
+from .FixedPolicyAgent import FixedPolicyAgent
+from .GAMetaHeuristicAgent import GAMetaHeuristicAgent
+from .PymooMetaHeuristicAgent import PymooMetaHeuristicAgent
 
 __all__ = [
-    "DummyAgent",
-    "PerfectInfoAgent",	
-    "StableBaselineAgent",
-    "PPOAgent",
-    "PDPPOAgent",
-    "PPOAgent_two_critics",
-    "PDPPOAgent_one_critic"
+    "BaseStockPolicyAgent",
+    "BSPEWAgent",
+    "BSPEWLowAgent",
+    "ConstantOrderPolicyAgent",
+    "FixedPolicyAgent",
+    "GAMetaHeuristicAgent",
+    "PymooMetaHeuristicAgent",
 ]
