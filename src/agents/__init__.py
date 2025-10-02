@@ -4,6 +4,7 @@ from .BSPEWLowAgent import BSPEWLowAgent
 from .ConstantOrderPolicyAgent import ConstantOrderPolicyAgent
 from .FixedPolicyAgent import FixedPolicyAgent
 from .GAMetaHeuristicAgent import GAMetaHeuristicAgent
+from .GPAgent import GPAgent
 from .PymooMetaHeuristicAgent import PymooMetaHeuristicAgent
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "ConstantOrderPolicyAgent",
     "FixedPolicyAgent",
     "GAMetaHeuristicAgent",
+    "GPAgent",
     "PymooMetaHeuristicAgent",
 ]

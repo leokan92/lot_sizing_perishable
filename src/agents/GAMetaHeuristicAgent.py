@@ -167,12 +167,20 @@ class GAMetaHeuristicAgent:
             population.append(chromosome)
         return population
 
-    def _calculate_fitness(self, chromosome):
+    def _calculate_fitness(self, chromosome, seed_batch_key: int | None = None):
         total_reward_across_episodes = 0.0
         if self.num_optimize_eval_episodes == 0: return -np.inf
 
-        for _ in range(self.num_optimize_eval_episodes):
-            observation, _ = self.env.reset() # Env is reset for each episode
+        # CRN: generate shared seeds per fitness evaluation call
+        base = getattr(self.env, '_initial_seed', None)
+        base = int(base) if base is not None else 0
+        mix_key = int(seed_batch_key) if seed_batch_key is not None else 0
+        mixed = (base ^ ((mix_key * 0x9E3779B1) & 0x7FFFFFFF) ^ 0x00A5A5A5) & 0x7FFFFFFF
+        rng_local = np.random.default_rng(mixed)
+        eval_seeds = [int(s) for s in rng_local.integers(low=0, high=2**31 - 1, size=self.num_optimize_eval_episodes)]
+
+        for seed in eval_seeds:
+            observation, _ = self.env.reset(seed=int(seed)) # Env is reset for each episode
             terminated = False
             truncated = False
             episode_reward = 0.0
@@ -229,7 +237,20 @@ class GAMetaHeuristicAgent:
             print("GA Optimizing...")
 
         for gen in generation_iterator:
-            fitnesses = [self._calculate_fitness(chromo) for chromo in population]
+            # Vary seeds across generations by offsetting env._initial_seed deterministically
+            original_initial_seed = getattr(self.env, '_initial_seed', None)
+            try:
+                base = int(original_initial_seed) if original_initial_seed is not None else 0
+            except Exception:
+                base = 0
+            # Mix gen into base to vary seeds across generations
+            mixed = (base ^ (gen * 0x9E3779B1)) & 0x7FFFFFFF
+            setattr(self.env, '_initial_seed', mixed)
+
+            fitnesses = [self._calculate_fitness(chromo, seed_batch_key=i) for i, chromo in enumerate(population)]
+
+            # Restore original seed after fitness evaluation for this generation
+            setattr(self.env, '_initial_seed', original_initial_seed)
 
             current_best_fitness_idx = np.argmax(fitnesses)
             current_best_fitness = fitnesses[current_best_fitness_idx]

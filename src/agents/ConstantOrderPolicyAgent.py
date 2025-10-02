@@ -101,11 +101,19 @@ class ConstantOrderPolicyAgent:
                 except Exception as e:
                     print(f"Error saving COP policy to '{self.save_policy_path}': {e}", file=sys.stderr)
 
-    def _evaluate_policy(self, policy_action: np.ndarray) -> float:
+    def _evaluate_policy(self, policy_action: np.ndarray, seed_batch_key: int | None = None) -> float:
         """Evaluates a given fixed policy over multiple episodes during OPTIMIZATION."""
         total_reward_across_episodes = 0.0
-        for _ in range(self.num_optimize_eval_episodes):
-            observation, _ = self.env.reset()
+        # CRN: shared seeds per evaluation call
+        base = getattr(self.env, '_initial_seed', None)
+        base = int(base) if base is not None else 0
+        mix_key = int(seed_batch_key) if seed_batch_key is not None else 0
+        mixed = (base ^ ((mix_key * 0x9E3779B1) & 0x7FFFFFFF) ^ 0x00C0FFEE) & 0x7FFFFFFF
+        rng_local = np.random.default_rng(mixed)
+        eval_seeds = [int(s) for s in rng_local.integers(low=0, high=2**31 - 1, size=self.num_optimize_eval_episodes)]
+
+        for seed in eval_seeds:
+            observation, _ = self.env.reset(seed=int(seed))
             terminated = False
             truncated = False
             episode_reward = 0.0
@@ -148,9 +156,9 @@ class ConstantOrderPolicyAgent:
              iterator = tqdm(range(self.num_candidate_policies), desc="Optimizing COP", unit="policy")
         else: iterator = range(self.num_candidate_policies)
         
-        for _ in iterator: # i is not used
+        for iter_idx, _ in enumerate(iterator):
             candidate_cop = self._generate_random_cop()
-            avg_reward = self._evaluate_policy(candidate_cop)
+            avg_reward = self._evaluate_policy(candidate_cop, seed_batch_key=iter_idx)
             if avg_reward > best_avg_reward:
                 best_avg_reward = avg_reward
                 best_cop = candidate_cop.copy()

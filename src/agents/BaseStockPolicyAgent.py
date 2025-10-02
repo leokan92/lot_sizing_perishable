@@ -117,12 +117,21 @@ class BaseStockPolicyAgent:
                 action[i, s] = float(max(0.0, order_qty)) # Order non-negative quantity
         return action
 
-    def _evaluate_policy(self, policy_matrix: np.ndarray) -> float:
+    def _evaluate_policy(self, policy_matrix: np.ndarray, seed_batch_key: int | None = None) -> float:
         total_reward_across_episodes = 0.0
         if self.num_optimize_eval_episodes == 0: return -np.inf # Avoid division by zero
 
-        for _ in range(self.num_optimize_eval_episodes):
-            observation, _ = self.env.reset()
+        # Common Random Numbers: generate a fixed list of seeds for this evaluation call
+        base = getattr(self.env, '_initial_seed', None)
+        base = int(base) if base is not None else 0
+        # Vary per-call seed set using seed_batch_key (e.g., candidate idx or generation)
+        mix_key = int(seed_batch_key) if seed_batch_key is not None else 0
+        mixed = (base ^ ((mix_key * 0x9E3779B1) & 0x7FFFFFFF) ^ 0x00BADC0DE) & 0x7FFFFFFF
+        rng_local = np.random.default_rng(mixed)
+        eval_seeds = [int(s) for s in rng_local.integers(low=0, high=2**31 - 1, size=self.num_optimize_eval_episodes)]
+
+        for seed in eval_seeds:
+            observation, _ = self.env.reset(seed=int(seed))
             terminated = False
             truncated = False
             episode_reward = 0.0
@@ -173,9 +182,9 @@ class BaseStockPolicyAgent:
             print(progress_bar_desc + "...")
 
 
-        for _ in iterator: # Use _ if i is not used
+        for iter_idx, _ in enumerate(iterator):
             candidate_bsp = self._generate_random_bsp()
-            avg_reward = self._evaluate_policy(candidate_bsp)
+            avg_reward = self._evaluate_policy(candidate_bsp, seed_batch_key=iter_idx)
             if avg_reward > best_avg_reward:
                 best_avg_reward = avg_reward
                 best_bsp_policy = candidate_bsp.copy()

@@ -78,6 +78,16 @@ class InventoryOptimizationProblem(Problem):
 
     def _evaluate(self, X, out, *args, **kwargs):
         fitness_values = []
+        # CRN: Generate shared seeds for this evaluate call; vary across batches using a call counter
+        base = getattr(self.agent.env, '_initial_seed', None)
+        try:
+            base = int(base) if base is not None else 0
+        except Exception:
+            base = 0
+        call_idx = getattr(self.agent, '_pymoo_eval_call_idx', 0)
+        mixed = (base ^ ((int(call_idx) * 0x9E3779B1) & 0x7FFFFFFF) ^ 0x13579BDF) & 0x7FFFFFFF
+        rng_local = np.random.default_rng(mixed)
+        eval_seeds = [int(s) for s in rng_local.integers(low=0, high=2**31 - 1, size=self.agent.num_optimize_eval_episodes)]
         for i in range(X.shape[0]):
             x_individual = X[i, :]
             chromosome = self._decode_individual(x_individual)
@@ -85,8 +95,8 @@ class InventoryOptimizationProblem(Problem):
             if self.agent.num_optimize_eval_episodes == 0:
                 fitness = -np.inf
             else:
-                for _ in range(self.agent.num_optimize_eval_episodes):
-                    self.agent.env.reset()
+                for seed in eval_seeds:
+                    self.agent.env.reset(seed=int(seed))
                     terminated, truncated = False, False
                     episode_reward = 0.0
                     while not (terminated or truncated):
@@ -97,6 +107,11 @@ class InventoryOptimizationProblem(Problem):
                 fitness = total_reward_across_episodes / self.agent.num_optimize_eval_episodes
             fitness_values.append(-fitness)
         out["F"] = np.array(fitness_values)
+        # Increment call counter for next batch so seeds vary per call
+        try:
+            self.agent._pymoo_eval_call_idx = int(call_idx) + 1
+        except Exception:
+            self.agent._pymoo_eval_call_idx = 1
 
     def _decode_individual(self, x_individual):
         chromosome = []

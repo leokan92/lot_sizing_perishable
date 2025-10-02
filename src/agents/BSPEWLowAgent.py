@@ -177,9 +177,10 @@ class BSPEWLowAgent(BSPEWAgent):
             iterator = range(self.num_candidate_policies)
             print(progress_bar_desc + "...")
 
-        for _ in iterator:
+        for iter_idx, _ in enumerate(iterator):
             candidate_policy = self._generate_random_bsp_low_ew_policy()
-            avg_reward = self._evaluate_policy(candidate_policy) # Uses the overridden _get_action_from_policy
+            # Uses BaseStockPolicyAgent._evaluate_policy with CRN; pass iter_idx to vary seed set per candidate
+            avg_reward = self._evaluate_policy(candidate_policy, seed_batch_key=iter_idx)
             if avg_reward > best_avg_reward:
                 best_avg_reward = avg_reward
                 best_policy = candidate_policy.copy()
