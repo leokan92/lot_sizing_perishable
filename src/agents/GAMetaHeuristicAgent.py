@@ -5,6 +5,7 @@ import sys
 import os
 import json # For saving/loading policies
 import random # For GA operations
+from typing import Optional
 
 try:
     from tqdm import tqdm
@@ -167,7 +168,7 @@ class GAMetaHeuristicAgent:
             population.append(chromosome)
         return population
 
-    def _calculate_fitness(self, chromosome, seed_batch_key: int | None = None):
+    def _calculate_fitness(self, chromosome, seed_batch_key: Optional[int] = None):
         total_reward_across_episodes = 0.0
         if self.num_optimize_eval_episodes == 0: return -np.inf
 

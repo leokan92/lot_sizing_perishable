@@ -1,5 +1,6 @@
 # src/agents/ConstantOrderPolicyAgent.py
 import numpy as np
+from typing import Optional
 import time
 import sys
 import os
@@ -101,7 +102,7 @@ class ConstantOrderPolicyAgent:
                 except Exception as e:
                     print(f"Error saving COP policy to '{self.save_policy_path}': {e}", file=sys.stderr)
 
-    def _evaluate_policy(self, policy_action: np.ndarray, seed_batch_key: int | None = None) -> float:
+    def _evaluate_policy(self, policy_action: np.ndarray, seed_batch_key: Optional[int] = None) -> float:
         """Evaluates a given fixed policy over multiple episodes during OPTIMIZATION."""
         total_reward_across_episodes = 0.0
         # CRN: shared seeds per evaluation call

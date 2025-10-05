@@ -18,6 +18,7 @@ try:
     from pymoo.operators.mutation.pm import PM, PolynomialMutation
     from pymoo.optimize import minimize
     from pymoo.termination import get_termination
+    from pymoo.core.repair import Repair
 except ImportError:
     print("FATAL ERROR: pymoo is not installed. Please install it using 'pip install pymoo'", file=sys.stderr)
     sys.exit(1)
@@ -76,6 +77,11 @@ class InventoryOptimizationProblem(Problem):
         
         super().__init__(n_var=n_vars, n_obj=1, n_constr=0, xl=np.array(xl), xu=np.array(xu))
 
+    # Optional: if pymoo calls problem.repair, keep consistent with our repair class
+    def repair(self, X, *args, **kwargs):
+        Xr = np.rint(X)
+        return np.clip(Xr, self.xl, self.xu)
+
     def _evaluate(self, X, out, *args, **kwargs):
         fitness_values = []
         # CRN: Generate shared seeds for this evaluate call; vary across batches using a call counter
@@ -107,41 +113,70 @@ class InventoryOptimizationProblem(Problem):
                 fitness = total_reward_across_episodes / self.agent.num_optimize_eval_episodes
             fitness_values.append(-fitness)
         out["F"] = np.array(fitness_values)
-        # Increment call counter for next batch so seeds vary per call
+        # Increment for next call so seeds vary across batches
         try:
             self.agent._pymoo_eval_call_idx = int(call_idx) + 1
         except Exception:
             self.agent._pymoo_eval_call_idx = 1
 
     def _decode_individual(self, x_individual):
+        # Ensure we work with a flat float array (handles 1xN, N, or nested inputs from pymoo)
+        xi = np.asarray(x_individual)
+        if xi.ndim > 1:
+            xi = xi.ravel()
+        # Convert to float to avoid numpy array scalars blocking round()
+        try:
+            xi = xi.astype(float, copy=False)
+        except Exception:
+            xi = np.array([float(v) for v in xi.ravel()])
+
+        def _to_int_rounded(v: float) -> int:
+            # robust rounding to int
+            try:
+                return int(np.rint(float(v)))
+            except Exception:
+                return int(round(float(v)))
+
         chromosome = []
         for i in range(self.n_items):
             base_idx = i * 3
-            
+
+            # Supplier index within the valid list for this item
             valid_suppliers = np.where(self.agent.item_supplier_matrix[i, :] == 1)[0]
             if not valid_suppliers.size:
                 supplier_idx = 0
             else:
-                valid_supplier_list_idx = int(round(x_individual[base_idx]))
-                supplier_idx = valid_suppliers[valid_supplier_list_idx]
-            
-            heuristic_id = int(round(x_individual[base_idx + 1]))
-            
-            param_idx = int(round(x_individual[base_idx + 2]))
+                vs_idx = _to_int_rounded(xi[base_idx])
+                # Clip to the available supplier list bounds
+                vs_idx = int(np.clip(vs_idx, 0, len(valid_suppliers) - 1))
+                supplier_idx = int(valid_suppliers[vs_idx])
+
+            # Heuristic id in [0, 2]
+            heuristic_id = _to_int_rounded(xi[base_idx + 1])
+            heuristic_id = int(np.clip(heuristic_id, HEURISTIC_COP, HEURISTIC_BSPEW))
+
+            # Parameter index for either quantity or base-stock options
+            p_idx = _to_int_rounded(xi[base_idx + 2])
             param_value = 0.0
             if heuristic_id == HEURISTIC_COP:
-                options = self.agent.quantity_options
-                if options:
-                    actual_idx = min(param_idx, len(options) - 1)
-                    param_value = options[actual_idx]
+                options = self.agent.quantity_options or []
             else:
-                options = self.agent.base_stock_level_options
-                if options:
-                    actual_idx = min(param_idx, len(options) - 1)
-                    param_value = options[actual_idx]
-            
+                options = self.agent.base_stock_level_options or []
+
+            if options:
+                p_idx = int(np.clip(p_idx, 0, len(options) - 1))
+                param_value = float(options[p_idx])
+
             chromosome.append((int(supplier_idx), int(heuristic_id), float(param_value)))
         return chromosome
+
+
+class RoundClipRepair(Repair):
+    """Round all decision variables and clip to bounds.
+    Ensures PSO particles align to discrete grid and stay within [xl, xu]."""
+    def _do(self, problem, X, **kwargs):
+        Xr = np.rint(X)
+        return np.clip(Xr, problem.xl, problem.xu)
 
 
 class PymooMetaHeuristicAgent:
@@ -239,16 +274,32 @@ class PymooMetaHeuristicAgent:
                 eliminate_duplicates=True
             )
         elif algo_name == "PSO":
-            algorithm = PSO(pop_size=pop_size)
+            # Use repair to snap particles to integer grid and respect bounds
+            algorithm = PSO(pop_size=pop_size, repair=RoundClipRepair())
         else:
             raise ValueError(f"Unknown algorithm '{algo_name}' specified in algorithm_config.")
-        termination_config = algo_params.get("termination", {"n_gen": 100})
-        print(f"  - Termination Criteria: {termination_config}")
-        termination_args = []
-        for key, value in termination_config.items():
-            termination_args.append(key)
-            termination_args.append(value)
-        termination = get_termination(*termination_args)
+        termination = None
+        termination_config = algo_params.get("termination", None)
+        if termination_config is not None:
+            # Allow dict or list/tuple specification
+            print(f"  - Termination Criteria (from 'termination'): {termination_config}")
+            if isinstance(termination_config, dict):
+                termination_args = []
+                for key, value in termination_config.items():
+                    termination_args.append(key)
+                    termination_args.append(value)
+                termination = get_termination(*termination_args)
+            elif isinstance(termination_config, (list, tuple)):
+                termination = get_termination(*termination_config)
+            else:
+                # Fallback if a simple name was provided incorrectly; default to 100 generations
+                print("Warning: termination config not a dict/list; defaulting to n_gen=100", file=sys.stderr)
+                termination = get_termination("n_gen", 100)
+        else:
+            # Backward-compatibility: use params.n_gen if present, else default to 100
+            n_gen = int(algo_params.get("n_gen", 100))
+            print(f"  - Termination Criteria (from 'n_gen'): n_gen={n_gen}")
+            termination = get_termination("n_gen", n_gen)
         start_time = time.time()
         res = minimize(
             problem,
@@ -261,8 +312,15 @@ class PymooMetaHeuristicAgent:
         end_time = time.time()
         print(f"\nPymoo ({algo_name}) Optimization finished in {end_time - start_time:.2f} seconds.")
         if res.X is not None:
-            best_fitness = -res.F[0]
-            best_solution_pymoo = res.X
+            # Handle both 1D and 2D shapes from pymoo results (e.g., NSGA2 may return multiple)
+            F_vals = np.array(res.F, dtype=float).ravel()
+            if getattr(res.X, "ndim", 1) > 1:
+                best_idx = int(np.argmin(F_vals)) if F_vals.size > 1 else 0
+                best_solution_pymoo = res.X[best_idx]
+                best_fitness = -float(F_vals[best_idx]) if F_vals.size else float("nan")
+            else:
+                best_solution_pymoo = res.X
+                best_fitness = -float(F_vals[0]) if F_vals.size else float("nan")
             self.best_chromosome = problem._decode_individual(best_solution_pymoo)
             print(f"Optimized Policy (Best Chromosome) Found:\n{self.best_chromosome}")
             print(f"Best Fitness found (avg reward): {best_fitness:.2f}")

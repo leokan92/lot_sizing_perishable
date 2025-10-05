@@ -1,5 +1,6 @@
 # src/agents/BaseStockPolicyAgent.py
 import numpy as np
+from typing import Optional
 import time
 import sys
 import os
@@ -117,7 +118,7 @@ class BaseStockPolicyAgent:
                 action[i, s] = float(max(0.0, order_qty)) # Order non-negative quantity
         return action
 
-    def _evaluate_policy(self, policy_matrix: np.ndarray, seed_batch_key: int | None = None) -> float:
+    def _evaluate_policy(self, policy_matrix: np.ndarray, seed_batch_key: Optional[int] = None) -> float:
         total_reward_across_episodes = 0.0
         if self.num_optimize_eval_episodes == 0: return -np.inf # Avoid division by zero
 
