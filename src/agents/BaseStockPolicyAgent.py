@@ -73,6 +73,7 @@ class BaseStockPolicyAgent:
             print(f"  - Base Stock Level Options: {self.base_stock_level_options}")
 
             start_time = time.time()
+            self._reset_env_seed_sequence()
             self.optimized_policy = self._optimize_bsp()
             end_time = time.time()
             print(f"\nOptimization finished in {end_time - start_time:.2f} seconds.")
@@ -86,6 +87,16 @@ class BaseStockPolicyAgent:
                     print(f"Optimized policy saved to: {self.save_policy_path}")
                 except Exception as e:
                     print(f"Error saving policy to '{self.save_policy_path}': {e}", file=sys.stderr)
+
+    def _reset_env_seed_sequence(self, seed_override: Optional[int] = None) -> None:
+        if hasattr(self.env, "reset_seed_sequence"):
+            base_seed = seed_override if seed_override is not None else getattr(self.env, "_initial_seed", None)
+            if base_seed is None:
+                return
+            try:
+                self.env.reset_seed_sequence(int(base_seed))
+            except Exception:
+                pass
 
     def _calculate_outstanding_orders(self) -> np.ndarray:
         outstanding = np.zeros(self.env.n_items, dtype=int) # outstanding quantity is discrete
@@ -205,6 +216,7 @@ class BaseStockPolicyAgent:
              return []
 
         print(f"\nRunning final evaluation with {'Loaded' if self.load_policy_path else 'Optimized'} BSP for {self.num_final_eval_episodes} episode(s)...")
+        self._reset_env_seed_sequence()
         for episode_idx in range(self.num_final_eval_episodes):
             if self.logger:
                 self.logger.start_episode(episode_num=episode_idx)

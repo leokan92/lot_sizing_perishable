@@ -12,7 +12,8 @@ class PerishableInvEnv(gym.Env):
     def __init__(self, settings: dict, stochastic_model_settings: dict, seed=None): # stochastic_model_settings is stoch_model in main_runner
         super(PerishableInvEnv, self).__init__()
         self._initial_seed = seed
-        self._current_seed_state = self._initial_seed
+        self._current_seed_state = None
+        self._next_seed_state = seed
         self.settings = settings
         self.stoch_model = stochastic_model_settings # Corrected param name to match usage
         self.env_rng = default_rng(seed)
@@ -353,17 +354,17 @@ class PerishableInvEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # --- Determine Seed ---
-        seed_to_use = None
         if seed is not None:
-            seed_to_use = seed
-            self._current_seed_state = seed
+            seed_to_use = int(seed)
+            self._next_seed_state = seed_to_use + 1
         else:
-            if self._current_seed_state is None:
-                seed_to_use = np.random.randint(0, 1e9)
-                self._current_seed_state = seed_to_use
+            if self._next_seed_state is None:
+                seed_to_use = int(np.random.randint(0, 1e9))
+                self._next_seed_state = seed_to_use + 1
             else:
-                seed_to_use = self._current_seed_state + 1
-                self._current_seed_state += 1
+                seed_to_use = int(self._next_seed_state)
+                self._next_seed_state += 1
+        self._current_seed_state = seed_to_use
         # --- Re-seed RNGs ---
         self.env_rng = default_rng(seed_to_use)
         self.stoch_model.rng = default_rng(seed_to_use)
@@ -393,6 +394,15 @@ class PerishableInvEnv(gym.Env):
             'demand_units': self.last_step_demand.copy()
         }
         return observation, info
+
+    def reset_seed_sequence(self, seed=None):
+        """Reset the internal seed progression so future resets reuse the same base seed."""
+        if seed is None:
+            if self._initial_seed is None:
+                raise ValueError("No base seed stored; provide a seed explicitly.")
+            seed = self._initial_seed
+        self._next_seed_state = int(seed)
+        self._current_seed_state = None
 
     def step(self, action, verbose=False):
         if self.current_step >= self.T:

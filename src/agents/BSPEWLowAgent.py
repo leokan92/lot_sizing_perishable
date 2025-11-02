@@ -79,6 +79,7 @@ class BSPEWLowAgent(BSPEWAgent):
                 print(f"Error loading BSP-low-EW policy from '{self.load_policy_path}': {e}", file=sys.stderr)
                 # Decide if to exit or proceed to optimize
                 print("Proceeding to optimize BSP-low-EW policy instead.")
+                self._reset_env_seed_sequence()
                 self.optimized_policy = self._optimize_bsp_low_ew() # Fallback to optimize
         else:
             # If not loading, then optimize specifically for BSPELowAgent
@@ -91,6 +92,7 @@ class BSPEWLowAgent(BSPEWAgent):
             print(f"  - b options: {self.b_options}")
 
             start_time = time.time()
+            self._reset_env_seed_sequence()
             self.optimized_policy = self._optimize_bsp_low_ew()
             end_time = time.time()
             # ... (rest of your optimization printout and save logic) ...
@@ -260,6 +262,7 @@ class BSPEWLowAgent(BSPEWAgent):
 
 
         print(f"\nRunning final evaluation with {'Loaded' if self.load_policy_path else 'Optimized'} BSP-low-EW for {self.num_final_eval_episodes} episode(s)...")
+        self._reset_env_seed_sequence()
         for episode_idx in range(self.num_final_eval_episodes):
             if self.logger:
                 self.logger.start_episode(episode_num=episode_idx)

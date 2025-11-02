@@ -5,6 +5,7 @@ import sys
 import os
 import json
 import random
+from typing import Optional
 
 # Pymoo imports
 try:
@@ -239,6 +240,7 @@ class PymooMetaHeuristicAgent:
                 self.load_policy_path = None
                 self.best_chromosome = None
         if self.best_chromosome is None:
+            self._reset_env_seed_sequence()
             self._optimize_policy_pymoo()
             if self.save_policy_path:
                 print(f"\n--- Saving Optimized Meta-Heuristic Policy ---")
@@ -248,6 +250,16 @@ class PymooMetaHeuristicAgent:
                     print(f"Optimized policy saved to: {self.save_policy_path}")
                 except Exception as e:
                     print(f"Error saving policy to '{self.save_policy_path}': {e}", file=sys.stderr)
+
+    def _reset_env_seed_sequence(self, seed_override: Optional[int] = None) -> None:
+        if hasattr(self.env, "reset_seed_sequence"):
+            base_seed = seed_override if seed_override is not None else getattr(self.env, "_initial_seed", None)
+            if base_seed is None:
+                return
+            try:
+                self.env.reset_seed_sequence(int(base_seed))
+            except Exception:
+                pass
 
     def _optimize_policy_pymoo(self):
         algo_name = self.algorithm_config.get("name", "GA").upper()
@@ -352,25 +364,46 @@ class PymooMetaHeuristicAgent:
     def run(self, render_steps=False, verbose=False):
         all_episode_rewards = []
         if self.best_chromosome is None:
-             print("Error: Agent has no optimized policy to run. Exiting.", file=sys.stderr)
-             return []
+            print("Error: Agent has no optimized policy to run. Exiting.", file=sys.stderr)
+            return []
+
         print(f"\nRunning final evaluation with {'Loaded' if self.load_policy_path else 'Optimized'} Policy "
               f"for {self.num_final_eval_episodes} episode(s)...")
+        self._reset_env_seed_sequence()
+
         for episode_idx in range(self.num_final_eval_episodes):
-            if self.logger: self.logger.start_episode(episode_num=episode_idx)
+            if self.logger:
+                self.logger.start_episode(episode_num=episode_idx)
+
             self.env.reset()
             terminated, truncated = False, False
             total_reward_episode = 0.0
+
             while not (terminated or truncated):
                 action_to_take = self._get_action_from_chromosome(self.best_chromosome)
                 _, reward_step, terminated, truncated, info_step = self.env.step(action_to_take, verbose=verbose)
-                if self.logger: self.logger.log_step(step_num=self.env.current_step, reward=reward_step, info=info_step, action=action_to_take if self.logger.log_actions else None)
-                if render_steps: self.env.render()
+
+                if self.logger:
+                    self.logger.log_step(
+                        step_num=self.env.current_step,
+                        reward=reward_step,
+                        info=info_step,
+                        action=action_to_take if self.logger.log_actions else None
+                    )
+
+                if render_steps:
+                    self.env.render()
                 total_reward_episode += reward_step
-            if self.logger: self.logger.end_episode()
-            if verbose: print(f"Evaluation Episode {episode_idx + 1}: Total Reward: {total_reward_episode:.2f}")
+
+            if self.logger:
+                self.logger.end_episode()
+            if verbose:
+                print(f"Evaluation Episode {episode_idx + 1}: Total Reward: {total_reward_episode:.2f}")
             all_episode_rewards.append(total_reward_episode)
-        if self.logger: self.logger.finalize_logs()
+
+        if self.logger:
+            self.logger.finalize_logs()
+
         if self.num_final_eval_episodes > 0:
             avg_final_reward = np.mean(all_episode_rewards)
             print(f"Average reward over {self.num_final_eval_episodes} final evaluation episodes: {avg_final_reward:.2f}")

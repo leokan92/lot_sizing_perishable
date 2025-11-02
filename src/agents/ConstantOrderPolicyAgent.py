@@ -88,6 +88,7 @@ class ConstantOrderPolicyAgent:
             print(f"  - Quantity Options: {self.quantity_options}")
 
             start_time = time.time()
+            self._reset_env_seed_sequence()
             self.optimized_action = self._optimize_cop()
             end_time = time.time()
             print(f"\nCOP Optimization finished in {end_time - start_time:.2f} seconds.")
@@ -101,6 +102,16 @@ class ConstantOrderPolicyAgent:
                     print(f"Optimized COP policy saved to: {self.save_policy_path}")
                 except Exception as e:
                     print(f"Error saving COP policy to '{self.save_policy_path}': {e}", file=sys.stderr)
+
+    def _reset_env_seed_sequence(self, seed_override: Optional[int] = None) -> None:
+        if hasattr(self.env, "reset_seed_sequence"):
+            base_seed = seed_override if seed_override is not None else getattr(self.env, "_initial_seed", None)
+            if base_seed is None:
+                return
+            try:
+                self.env.reset_seed_sequence(int(base_seed))
+            except Exception:
+                pass
 
     def _evaluate_policy(self, policy_action: np.ndarray, seed_batch_key: Optional[int] = None) -> float:
         """Evaluates a given fixed policy over multiple episodes during OPTIMIZATION."""
@@ -176,12 +187,13 @@ class ConstantOrderPolicyAgent:
         """Runs the agent using the optimized/loaded COP for FINAL evaluation."""
         all_episode_rewards = []
         if self.optimized_action is None:
-             print("Error: COP Agent has no optimized policy to run. Exiting.", file=sys.stderr)
-             return []
+            print("Error: COP Agent has no optimized policy to run. Exiting.", file=sys.stderr)
+            return []
 
         print(f"\nRunning final evaluation with {'Loaded' if self.load_policy_path else 'Optimized'} COP "
               f"for {self.num_final_eval_episodes} episode(s)...")
-        
+        self._reset_env_seed_sequence()
+
         # The action is constant for COP
         action_to_take = self.optimized_action
 
