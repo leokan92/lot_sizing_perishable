@@ -1,4 +1,4 @@
-# Optimizing Integrated Procurement and Perishable Inventory Policies with Population-Based Metaheuristics
+# Automatic Policy Search using Population-Based Hyper-heuristics for the Integrated Procurement and Perishable Inventory Problem
 
 **Authors:**
 *   Leonardo Kanashiro Felizardo (Escola Politécnica da Universidade de São Paulo)
@@ -9,7 +9,9 @@
 
 ## Abstract
 
-Managing perishable inventory presents a formidable challenge in operations research, characterized by the dual risks of spoilage and stockouts. These challenges are compounded in environments with stochastic demand, unreliable suppliers, and multi-item, multi-supplier sourcing complexities, which create high-dimensional, coupled decision problems that are intractable for traditional optimization methods. This paper addresses this gap by developing a discrete-event simulation environment and using it to conduct a benchmarking study of several control strategies. We compare the performance of classic parametrized heuristics—Constant Order Policy (COP), Base Stock Policy (BSP), and an Expected Wastage-Aware variant (BSP-EW)—against a suite of population-based metaheuristics: the Genetic Algorithm (GA), Particle Swarm Optimization (PSO), and the Non-dominated Sorting Genetic Algorithm II (NSGA-II). These metaheuristics are employed to tune parameters and construct control policies by automating the selection of the most suitable heuristic and its parameters on an item-by-item basis. Our computational results, conducted across twelve distinct scenarios of varying scale and uncertainty, demonstrate the superiority of the NSGA-II-driven approach, which achieved the highest total reward in all tested instances. The policies discovered by NSGA-II prove to be most effective in balancing the critical trade-off between minimizing lost sales and controlling inventory-related costs. The primary contribution of this work is the empirical validation that advanced metaheuristics provide a framework for solving complex, integrated procurement and perishable inventory problems, justifying the upfront computational investment with significant improvements in operational efficiency and service levels.
+This paper addresses the problem of managing perishable inventory under multiple sources of uncertainty, including stochastic demand, unreliable supplier fulfillment, and probabilistic product shelf life. We develop a discrete-event simulation environment to compare two optimization strategies for this multi-item, multi-supplier problem. The first strategy optimizes uniform classic policies (e.g., Constant Order and Base Stock) by tuning their parameters globally, complemented by a direct search to select the best-fitting suppliers for the integrated problem. 
+The second approach is a hyper-heuristic approach, driven by metaheuristics such as a Genetic Algorithm (GA) and Particle Swarm Optimization (PSO). 
+This framework constructs a composite policy by automating the selection of the heuristic type, its parameters, and the sourcing suppliers on an item-by-item basis. Computational results from twelve distinct instances demonstrate that the hyper-heuristic framework consistently identifies superior policies, with GA and EGA exhibiting the best overall performance. Our primary contribution is verifying that this item-level policy construction yields significant performance gains over simpler global policies, thereby justifying the associated computational cost.
 
 ---
 
@@ -84,8 +86,8 @@ The primary entry point for executing experiments is `main_runner.py`.
 If you use this code or the findings from our study in your research, please cite our paper:
 
 ```bibtex
-@article{felizardo2025optimizing,
-  title={Optimizing Integrated Procurement and Perishable Inventory Policies with Population-Based Metaheuristics},
+@article{Felizardo2025,
+  title={Automatic Policy Search using Population-Based Hyper-heuristics for the Integrated Procurement and Perishable Inventory Problem},
   author={Felizardo, Leonardo Kanashiro and Fadda, Edoardo and Nascimento, Mari{\'a} Cristina Vasconcelos},
   journal={Working Paper},
   year={2025}
