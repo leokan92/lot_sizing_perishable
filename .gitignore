@@ -1,3 +1,6 @@
 src/results/
 src/analysis/*
 !src/analysis/results_analyzer.py
+
+# M5 dataset (large files)
+m5_analysis/data/
