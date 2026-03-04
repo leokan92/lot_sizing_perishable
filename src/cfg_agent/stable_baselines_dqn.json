@@ -3,7 +3,7 @@
     "params": {
         "algorithm": "DQN",
         "policy": "MlpPolicy",
-        "total_timesteps": 2000000,
+        "total_timesteps": 200000,
         "num_final_eval_episodes": 50,
         "deterministic_eval": true,
         "train_log_interval": 10,
@@ -14,6 +14,11 @@
         "vec_env_type": "dummy",
         "device": "auto",
         "verbose": 0,
+        "logger_settings": {
+            "log_step_details": true,
+            "log_dir": "./src/results/simulation_logs/",
+            "log_actions": true
+        },
         "sb3_params": {
             "learning_rate": 0.001,
             "buffer_size": 50000,

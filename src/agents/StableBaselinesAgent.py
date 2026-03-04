@@ -11,6 +11,11 @@ except ImportError:
     print("FATAL ERROR: stable-baselines3 is not installed. Please install it using 'pip install stable-baselines3'", file=sys.stderr)
     sys.exit(1)
 
+try:
+    from src.utils.simulation_logger import SimulationLogger
+except ImportError:
+    SimulationLogger = None
+
 
 class _SB3PerishableEnvWrapper(gym.Env):
     metadata = {'render_modes': ['human'], 'render_fps': 1}
@@ -107,6 +112,7 @@ class _SB3PerishableEnvWrapper(gym.Env):
 
     def step(self, action):
         decoded_action = self._decode_action(action)
+        self._last_decoded_action = decoded_action
         obs, reward, terminated, truncated, info = self.base_env.step(decoded_action, verbose=False)
         return self._flatten_obs(obs), float(reward) * self.reward_scale, terminated, truncated, info
 
@@ -154,6 +160,22 @@ class StableBaselinesAgent:
         self.vec_env_type = str(vec_env_type).lower()
 
         self.reward_scale = float(kwargs.get('reward_scale', 1.0))
+
+        # --- SimulationLogger setup (same pattern as PymooMetaHeuristicAgent) ---
+        self.logger = None
+        logger_settings = kwargs.get('logger_settings', {})
+        if SimulationLogger and logger_settings and logger_settings.get('log_step_details', False):
+            exp_name = logger_settings.get('experiment_name', f'sb3_{self.algorithm}_experiment')
+            self.logger = SimulationLogger(
+                log_dir=logger_settings.get('log_dir', './src/results/simulation_logs/'),
+                experiment_name=exp_name,
+                log_step_details=True,
+                log_actions=logger_settings.get('log_actions', True),
+                n_items=env.n_items,
+                n_suppliers=env.n_suppliers,
+            )
+            if self.logger.log_step_details_enabled:
+                print(f"SB3 Agent: Detailed simulation logging enabled. Log file: {self.logger.log_file_path}")
 
         # Wrapper kwargs shared across all env copies
         self._wrapper_kwargs = dict(
@@ -254,6 +276,9 @@ class StableBaselinesAgent:
         )
 
         for episode_idx in range(self.num_final_eval_episodes):
+            if self.logger:
+                self.logger.start_episode(episode_num=episode_idx)
+
             obs, _ = self.eval_env.reset()
             terminated = False
             truncated = False
@@ -261,15 +286,32 @@ class StableBaselinesAgent:
 
             while not (terminated or truncated):
                 action, _ = self.model.predict(obs, deterministic=self.deterministic_eval)
-                obs, reward, terminated, truncated, _ = self.eval_env.step(action)
+                obs, reward, terminated, truncated, info = self.eval_env.step(action)
                 total_reward_episode += float(reward)
+
+                if self.logger:
+                    # Use unscaled reward for logging (divide out the scale)
+                    raw_reward = float(reward) / self.reward_scale if self.reward_scale != 0 else float(reward)
+                    self.logger.log_step(
+                        step_num=self.eval_env.base_env.current_step,
+                        reward=raw_reward,
+                        info=info,
+                        action=getattr(self.eval_env, '_last_decoded_action', None)
+                              if self.logger.log_actions else None
+                    )
 
                 if render_steps:
                     self.eval_env.render()
 
+            if self.logger:
+                self.logger.end_episode()
+
             if verbose:
                 print(f"Evaluation Episode {episode_idx + 1}: Total Reward: {total_reward_episode:.2f}")
             all_episode_rewards.append(total_reward_episode)
+
+        if self.logger:
+            self.logger.finalize_logs()
 
         if self.num_final_eval_episodes > 0:
             avg_final_reward = np.mean(all_episode_rewards)
