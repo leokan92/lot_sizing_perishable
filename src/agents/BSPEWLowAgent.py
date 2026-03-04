@@ -132,27 +132,31 @@ class BSPEWLowAgent(BSPEWAgent):
             if not valid_suppliers_for_i.size:
                 continue
 
-            s_chosen = self.env.env_rng.choice(valid_suppliers_for_i)
-            candidate_policy[i, s_chosen, 3] = 1.0 # Mark as active supplier
+            # Allow multiple suppliers per item
+            n_chosen = int(self.env.env_rng.integers(1, len(valid_suppliers_for_i) + 1))
+            chosen_suppliers = self.env.env_rng.choice(valid_suppliers_for_i, size=n_chosen, replace=False)
 
-            chosen_s1 = 0.0
-            if self.s1_options:
-                chosen_s1 = float(self.env.env_rng.choice(self.s1_options))
-            candidate_policy[i, s_chosen, 0] = chosen_s1
+            for s_chosen in chosen_suppliers:
+                candidate_policy[i, s_chosen, 3] = 1.0 # Mark as active supplier
 
-            chosen_s2 = 0.0
-            if self.s2_options:
-                chosen_s2 = float(self.env.env_rng.choice(self.s2_options))
-            candidate_policy[i, s_chosen, 1] = chosen_s2
+                chosen_s1 = 0.0
+                if self.s1_options:
+                    chosen_s1 = float(self.env.env_rng.choice(self.s1_options))
+                candidate_policy[i, s_chosen, 0] = chosen_s1
 
-            chosen_b = 1.0 # b must be > 0 for alpha calculation
-            if self.b_options:
-                valid_b_options = [b_val for b_val in self.b_options if b_val > 1e-6] # Ensure b is positive
-                if valid_b_options:
-                    chosen_b = float(self.env.env_rng.choice(valid_b_options))
-                else:
-                    print("Warning: No valid b_options > 0 found. Defaulting b to 1.0.")
-            candidate_policy[i, s_chosen, 2] = chosen_b
+                chosen_s2 = 0.0
+                if self.s2_options:
+                    chosen_s2 = float(self.env.env_rng.choice(self.s2_options))
+                candidate_policy[i, s_chosen, 1] = chosen_s2
+
+                chosen_b = 1.0 # b must be > 0 for alpha calculation
+                if self.b_options:
+                    valid_b_options = [b_val for b_val in self.b_options if b_val > 1e-6] # Ensure b is positive
+                    if valid_b_options:
+                        chosen_b = float(self.env.env_rng.choice(valid_b_options))
+                    else:
+                        print("Warning: No valid b_options > 0 found. Defaulting b to 1.0.")
+                candidate_policy[i, s_chosen, 2] = chosen_b
 
         return candidate_policy
     
@@ -201,53 +205,72 @@ class BSPEWLowAgent(BSPEWAgent):
         outstanding_orders_total = self._calculate_outstanding_orders() # Total outstanding for each item
 
         for i in range(self.env.n_items):
-            # Find the active supplier for item i
+            # Find all active suppliers for item i
             active_supplier_indices = np.where(bsp_low_ew_policy_matrix[i, :, 3] == 1)[0]
+            if len(active_supplier_indices) == 0:
+                continue
 
-            if len(active_supplier_indices) > 0:
-                s = active_supplier_indices[0] # Assuming single supplier chosen per item
-                if len(active_supplier_indices) > 1:
-                    if self.env.current_step < 5: # Print warning only a few times
-                         print(f"Warning (BSPELowAgent Action): Multiple active suppliers for item {i}. Using first: {s}")
+            on_hand_item_i = float(current_inventory_level_total[i])
+            outstanding_item_i = float(outstanding_orders_total[i])
+            inventory_position_y_t = on_hand_item_i + outstanding_item_i
 
+            # Aggregate (S1, S2, b) across active suppliers
+            S2_values = np.array([float(bsp_low_ew_policy_matrix[i, s, 1]) for s in active_supplier_indices])
+            total_S2 = float(np.sum(S2_values))
+            total_S1 = float(np.sum([bsp_low_ew_policy_matrix[i, s, 0] for s in active_supplier_indices]))
 
-                S1 = bsp_low_ew_policy_matrix[i, s, 0]
-                S2 = bsp_low_ew_policy_matrix[i, s, 1]
-                b_breakpoint = bsp_low_ew_policy_matrix[i, s, 2]
+            # Weights for averaging (by S2, or equal if all S2 are zero)
+            if total_S2 > 1e-9:
+                weights = S2_values / total_S2
+            else:
+                weights = np.ones(len(active_supplier_indices)) / len(active_supplier_indices)
 
-                on_hand_item_i = float(current_inventory_level_total[i])
-                outstanding_item_i = float(outstanding_orders_total[i])
-                inventory_position_y_t = on_hand_item_i + outstanding_item_i
+            avg_b = float(np.sum([
+                weights[k] * bsp_low_ew_policy_matrix[i, s, 2]
+                for k, s in enumerate(active_supplier_indices)
+            ]))
 
-                ew_item_i = 0.0
-                chosen_supplier_lead_time = int(self.env.lead_times[i, s])
+            # EW using weighted average lead time
+            avg_lead_time = int(np.round(np.sum([
+                weights[k] * self.env.lead_times[i, s]
+                for k, s in enumerate(active_supplier_indices)
+            ])))
+            avg_lead_time = max(1, avg_lead_time)
 
-                # EW Calculation (reused from BSPEWAgent)
-                if self.waste_estimation_method == "closed_form_approx":
-                    ew_item_i = self._calculate_ew_closed_form_approx(i, chosen_supplier_lead_time)
-                elif self.waste_estimation_method == "deterministic_simulation":
-                    ew_item_i = self._calculate_ew_deterministic_simulation(i, chosen_supplier_lead_time)
+            ew_item_i = 0.0
+            if self.waste_estimation_method == "closed_form_approx":
+                ew_item_i = self._calculate_ew_closed_form_approx(i, avg_lead_time)
+            elif self.waste_estimation_method == "deterministic_simulation":
+                ew_item_i = self._calculate_ew_deterministic_simulation(i, avg_lead_time)
+            else:
+                if self.env.current_step < 5:
+                    print(f"Warning: Unknown EW method '{self.waste_estimation_method}' in BSPELowAgent. Using 0 EW for item {i}.")
+
+            # Compute total order using aggregated BSP-low formula
+            total_order = 0.0
+            if inventory_position_y_t < avg_b:
+                if avg_b < 1e-6:
+                    total_order = total_S2 - inventory_position_y_t + ew_item_i
                 else:
-                    if self.env.current_step < 5 : # Print warning only a few times
-                        print(f"Warning: Unknown EW method '{self.waste_estimation_method}' in BSPELowAgent. Using 0 EW for item {i}.")
+                    order_at_y0 = total_S1
+                    order_at_b = total_S2 - avg_b
+                    slope_m = (order_at_b - order_at_y0) / avg_b
+                    total_order = order_at_y0 + slope_m * inventory_position_y_t + ew_item_i
+            else:
+                total_order = total_S2 - inventory_position_y_t + ew_item_i
 
-                order_qty = 0.0
-                if inventory_position_y_t < b_breakpoint:
-                    if b_breakpoint < 1e-6:
-                        order_qty = S2 - inventory_position_y_t + ew_item_i
-                    else:
-                        order_qty_at_y0_seg1 = S1 # S1 is the q_t when y_t=0 (before EW)
-                        order_qty_at_b_seg1 = S2 - b_breakpoint # q_t when y_t=b (before EW)
-                        
-                        # Linear interpolation for order quantity (before EW)
-                        # q(y) = q(0) + (q(b)-q(0))/b * y
-                        slope_m = (order_qty_at_b_seg1 - order_qty_at_y0_seg1) / b_breakpoint
-                        current_order_qty_base = order_qty_at_y0_seg1 + slope_m * inventory_position_y_t
-                        order_qty = current_order_qty_base + ew_item_i
-                else: 
-                    order_qty = S2 - inventory_position_y_t + ew_item_i
+            total_order = max(0.0, total_order)
 
-                action[i, s] = float(max(0.0, order_qty))
+            # Split proportionally by S2 values
+            if total_order > 0.0 and total_S2 > 1e-9:
+                for k, s in enumerate(active_supplier_indices):
+                    fraction = S2_values[k] / total_S2
+                    action[i, s] = float(fraction * total_order)
+            elif total_order > 0.0:
+                # Equal split if all S2 are zero
+                per_supplier = total_order / len(active_supplier_indices)
+                for s in active_supplier_indices:
+                    action[i, s] = float(per_supplier)
         return action
 
     def run(self, render_steps=False, verbose=False):

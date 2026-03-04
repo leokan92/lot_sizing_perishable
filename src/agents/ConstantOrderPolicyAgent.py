@@ -151,13 +151,15 @@ class ConstantOrderPolicyAgent:
             num_valid_suppliers = len(valid_suppliers_for_i)
 
             if num_valid_suppliers == 0: continue
-            elif num_valid_suppliers == 1: s_chosen = valid_suppliers_for_i[0]
-            else: s_chosen = rng_to_use.choice(valid_suppliers_for_i)
-            
-            if not self.quantity_options: chosen_quantity = 0.0
-            else: chosen_quantity = rng_to_use.choice(self.quantity_options)
-            
-            candidate_cop[i, s_chosen] = float(chosen_quantity)
+
+            # Allow ordering from multiple suppliers per item
+            n_chosen = int(rng_to_use.integers(1, num_valid_suppliers + 1))
+            chosen_suppliers = rng_to_use.choice(valid_suppliers_for_i, size=n_chosen, replace=False)
+
+            for s_chosen in chosen_suppliers:
+                if not self.quantity_options: chosen_quantity = 0.0
+                else: chosen_quantity = rng_to_use.choice(self.quantity_options)
+                candidate_cop[i, s_chosen] = float(chosen_quantity)
         return candidate_cop
 
     def _optimize_cop(self) -> np.ndarray:

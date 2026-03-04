@@ -1,0 +1,30 @@
+{
+    "agent_type": "stable_baselines",
+    "params": {
+        "algorithm": "PPO",
+        "policy": "MlpPolicy",
+        "total_timesteps": 2000000,
+        "num_final_eval_episodes": 50,
+        "deterministic_eval": true,
+        "train_log_interval": 10,
+        "max_order_quantity": 20,
+        "dqn_num_actions": 256,
+        "dqn_action_seed": 12345,
+        "n_envs": 6,
+        "vec_env_type": "dummy",
+        "device": "auto",
+        "verbose": 0,
+        "sb3_params": {
+            "learning_rate": 0.001,
+            "n_steps": 2048,
+            "batch_size": 32,
+            "n_epochs": 10,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "ent_coef": 0.0,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5
+        }
+    }
+}

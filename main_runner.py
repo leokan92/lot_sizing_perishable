@@ -41,7 +41,8 @@ def get_agent_class(agent_type_name):
         "bsp": ("BaseStockPolicyAgent", "src.agents.BaseStockPolicyAgent"),
         "bsp_ew": ("BSPEWAgent", "src.agents.BSPEWAgent"),
         "bsp_ew_low": ("BSPEWLowAgent", "src.agents.BSPEWLowAgent"),
-        "pymoo_meta_heuristic": ("PymooMetaHeuristicAgent", "src.agents.PymooMetaHeuristicAgent")
+        "pymoo_meta_heuristic": ("PymooMetaHeuristicAgent", "src.agents.PymooMetaHeuristicAgent"),
+        "stable_baselines": ("StableBaselinesAgent", "src.agents.StableBaselinesAgent")
     }
     if agent_type_name not in agent_mapping:
         raise ValueError(f"Unknown agent type: '{agent_type_name}'. Available: {list(agent_mapping.keys())}")
@@ -120,7 +121,7 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
     if pd.isna(save_policy_path_from_csv) or not str(save_policy_path_from_csv).strip():
         save_policy_path_from_csv = None
 
-    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_ew_low", "pymoo_meta_heuristic"]
+    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_ew_low", "pymoo_meta_heuristic", "stable_baselines"]
     if agent_type in policy_handling_agents:
         agent_params['load_policy_path'] = load_policy_path_from_csv
         if load_policy_path_from_csv:
@@ -143,6 +144,7 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
                 
                 if not ext:
                     if agent_type == "pymoo_meta_heuristic": ext = '.json'
+                    elif agent_type == "stable_baselines": ext = '.zip'
                     else: ext = '.npy'
                 
                 if exp_config.get('num_seeds', 1) > 1:
@@ -161,6 +163,7 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
             
             if not ext:
                 if agent_type == "pymoo_meta_heuristic": ext = '.json'
+                elif agent_type == "stable_baselines": ext = '.zip'
                 else: ext = '.npy'
             
             if exp_config.get('num_seeds', 1) > 1:

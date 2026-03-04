@@ -61,8 +61,9 @@ class BaseStockPolicyAgent:
                 if self.optimized_policy.shape != self.env.action_space.shape:
                      raise ValueError(f"Loaded policy shape {self.optimized_policy.shape} incompatible with env action space {self.env.action_space.shape}")
                 for i in range(self.env.n_items):
-                    if np.count_nonzero(self.optimized_policy[i, :]) > 1:
-                        print(f"Warning: Loaded policy for item {i} has multiple suppliers defined. Using first found.")
+                    n_active = np.count_nonzero(self.optimized_policy[i, :])
+                    if n_active > 1:
+                        print(f"Info: Loaded policy for item {i} uses {n_active} suppliers (multi-supplier mode).")
             except Exception as e:
                 print(f"Error loading policy from '{self.load_policy_path}': {e}", file=sys.stderr)
                 sys.exit(1)
@@ -114,19 +115,23 @@ class BaseStockPolicyAgent:
         outstanding_orders = self._calculate_outstanding_orders()
 
         for i in range(self.env.n_items):
-            chosen_supplier_idx = np.where(bsp_policy_matrix[i, :] > 0)[0]
-            if len(chosen_supplier_idx) > 0:
-                s = chosen_supplier_idx[0]
-                # Ensure all components are float for the calculation
-                target_level_float = float(bsp_policy_matrix[i, s])
-                on_hand_float = float(current_inventory_level[i])
-                outstanding_float = float(outstanding_orders[i])
+            active_suppliers = np.where(bsp_policy_matrix[i, :] > 0)[0]
+            if len(active_suppliers) == 0:
+                continue
 
-                # Standard base stock policy calculation
-                inventory_position = on_hand_float + outstanding_float
-                order_qty = target_level_float - inventory_position
-                
-                action[i, s] = float(max(0.0, order_qty)) # Order non-negative quantity
+            # Total base stock target = sum of per-supplier levels
+            total_target = float(np.sum(bsp_policy_matrix[i, active_suppliers]))
+            on_hand_float = float(current_inventory_level[i])
+            outstanding_float = float(outstanding_orders[i])
+
+            inventory_position = on_hand_float + outstanding_float
+            total_order = max(0.0, total_target - inventory_position)
+
+            # Split order proportionally across active suppliers
+            if total_order > 0.0 and total_target > 0.0:
+                for s in active_suppliers:
+                    fraction = float(bsp_policy_matrix[i, s]) / total_target
+                    action[i, s] = float(fraction * total_order)
         return action
 
     def _evaluate_policy(self, policy_matrix: np.ndarray, seed_batch_key: Optional[int] = None) -> float:
@@ -165,13 +170,16 @@ class BaseStockPolicyAgent:
             valid_suppliers_for_i = np.where(item_supplier_matrix[i, :] == 1)[0]
             if not valid_suppliers_for_i.size: continue # No valid suppliers for this item
 
-            s_chosen = self.env.env_rng.choice(valid_suppliers_for_i)
-            
-            if not self.base_stock_level_options: 
-                chosen_level = 0.0 # Default if no options
-            else: 
-                chosen_level = self.env.env_rng.choice(self.base_stock_level_options)
-            candidate_bsp[i, s_chosen] = float(chosen_level)
+            # Allow multiple suppliers per item
+            n_chosen = int(self.env.env_rng.integers(1, len(valid_suppliers_for_i) + 1))
+            chosen_suppliers = self.env.env_rng.choice(valid_suppliers_for_i, size=n_chosen, replace=False)
+
+            for s_chosen in chosen_suppliers:
+                if not self.base_stock_level_options: 
+                    chosen_level = 0.0
+                else: 
+                    chosen_level = self.env.env_rng.choice(self.base_stock_level_options)
+                candidate_bsp[i, s_chosen] = float(chosen_level)
         return candidate_bsp
 
     def _optimize_bsp(self) -> np.ndarray:

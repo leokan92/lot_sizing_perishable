@@ -52,12 +52,13 @@ class InventoryOptimizationProblem(Problem):
         for i in range(self.n_items):
             epsilon = 1e-9 # A small number to add to the upper bound if xl == xu
             valid_suppliers = np.where(self.agent.item_supplier_matrix[i, :] == 1)[0]
-            _xl_supp = 0.0
-            _xu_supp = float(len(valid_suppliers) - 1 if len(valid_suppliers) > 0 else 0)
-            if _xl_supp >= _xu_supp:
-                _xu_supp = _xl_supp + epsilon
-            xl.append(_xl_supp)
-            xu.append(_xu_supp)
+            # Variable 1: Number of suppliers to use (1 to len(valid_suppliers))
+            _xl_n_supp = 1.0
+            _xu_n_supp = float(len(valid_suppliers) if len(valid_suppliers) > 0 else 1)
+            if _xl_n_supp >= _xu_n_supp:
+                _xu_n_supp = _xl_n_supp + epsilon
+            xl.append(_xl_n_supp)
+            xu.append(_xu_n_supp)
 
             # Variable 2: Heuristic ID
             _xl_heur = 0.0
@@ -142,15 +143,14 @@ class InventoryOptimizationProblem(Problem):
         for i in range(self.n_items):
             base_idx = i * 3
 
-            # Supplier index within the valid list for this item
+            # Number of valid suppliers to use for this item
             valid_suppliers = np.where(self.agent.item_supplier_matrix[i, :] == 1)[0]
             if not valid_suppliers.size:
-                supplier_idx = 0
+                chosen_suppliers = [0]
             else:
-                vs_idx = _to_int_rounded(xi[base_idx])
-                # Clip to the available supplier list bounds
-                vs_idx = int(np.clip(vs_idx, 0, len(valid_suppliers) - 1))
-                supplier_idx = int(valid_suppliers[vs_idx])
+                n_to_use = _to_int_rounded(xi[base_idx])
+                n_to_use = int(np.clip(n_to_use, 1, len(valid_suppliers)))
+                chosen_suppliers = valid_suppliers[:n_to_use].tolist()
 
             # Heuristic id in [0, 2]
             heuristic_id = _to_int_rounded(xi[base_idx + 1])
@@ -168,7 +168,7 @@ class InventoryOptimizationProblem(Problem):
                 p_idx = int(np.clip(p_idx, 0, len(options) - 1))
                 param_value = float(options[p_idx])
 
-            chromosome.append((int(supplier_idx), int(heuristic_id), float(param_value)))
+            chromosome.append((chosen_suppliers, int(heuristic_id), float(param_value)))
         return chromosome
 
 
@@ -346,7 +346,15 @@ class PymooMetaHeuristicAgent:
         current_outstanding_orders_all_items = self._calculate_outstanding_orders()
         for i in range(self.n_items):
             if i >= len(chromosome): continue
-            supplier_idx, heuristic_id, param_value = chromosome[i]
+            gene = chromosome[i]
+            # Support both old format (supplier_idx, heuristic, param) and new format ([suppliers], heuristic, param)
+            if isinstance(gene[0], (list, tuple)):
+                chosen_suppliers = gene[0]
+            else:
+                chosen_suppliers = [int(gene[0])]
+            heuristic_id = int(gene[1])
+            param_value = float(gene[2])
+
             order_qty = 0.0
             if heuristic_id == HEURISTIC_COP:
                 order_qty = param_value
@@ -355,10 +363,15 @@ class PymooMetaHeuristicAgent:
                 if heuristic_id == HEURISTIC_BSP:
                     order_qty = param_value - inv_pos
                 else: # HEURISTIC_BSPEW
-                    chosen_supplier_lead_time = int(self.env.lead_times[i, supplier_idx])
-                    ew_item_i = self._calculate_ew_deterministic_simulation(i, chosen_supplier_lead_time)
+                    avg_lead_time = int(np.mean([self.env.lead_times[i, s] for s in chosen_suppliers]))
+                    avg_lead_time = max(1, avg_lead_time)
+                    ew_item_i = self._calculate_ew_deterministic_simulation(i, avg_lead_time)
                     order_qty = param_value - inv_pos + ew_item_i
-            action_matrix[i, supplier_idx] = float(max(0.0, order_qty))
+
+            # Split order equally across chosen suppliers
+            per_supplier_qty = float(max(0.0, order_qty)) / len(chosen_suppliers) if chosen_suppliers else 0.0
+            for s in chosen_suppliers:
+                action_matrix[i, s] = float(per_supplier_qty)
         return action_matrix
 
     def run(self, render_steps=False, verbose=False):

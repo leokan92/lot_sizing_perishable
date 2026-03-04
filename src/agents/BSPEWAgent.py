@@ -173,25 +173,38 @@ class BSPEWAgent(BaseStockPolicyAgent):
         outstanding_orders = self._calculate_outstanding_orders() # Returns int array
 
         for i in range(self.env.n_items):
-            chosen_supplier_indices = np.where(bsp_policy_matrix[i, :] > 0)[0]
+            active_suppliers = np.where(bsp_policy_matrix[i, :] > 0)[0]
+            if len(active_suppliers) == 0:
+                continue
 
-            if len(chosen_supplier_indices) > 0:
-                s = chosen_supplier_indices[0]
-                target_level = bsp_policy_matrix[i, s] # This is float
-                on_hand = float(current_inventory_level[i]) # Ensure float for calculations
-                outstanding = float(outstanding_orders[i]) # Ensure float
-                ew_item_i = 0.0
-                chosen_supplier_lead_time = int(self.env.lead_times[i,s])
+            # Total base stock target = sum of per-supplier levels
+            total_target = float(np.sum(bsp_policy_matrix[i, active_suppliers]))
+            on_hand = float(current_inventory_level[i])
+            outstanding = float(outstanding_orders[i])
+            inventory_position = on_hand + outstanding
 
-                if self.waste_estimation_method == "closed_form_approx":
-                    ew_item_i = self._calculate_ew_closed_form_approx(i, chosen_supplier_lead_time)
-                elif self.waste_estimation_method == "deterministic_simulation":
-                    ew_item_i = self._calculate_ew_deterministic_simulation(i, chosen_supplier_lead_time)
-                else: 
-                    print(f"Warning: Unknown EW method '{self.waste_estimation_method}' in _get_action_from_policy. Using 0 EW for item {i}.")
+            # Compute EW using weighted average lead time across active suppliers
+            weights = np.array([float(bsp_policy_matrix[i, s]) for s in active_suppliers])
+            weights /= weights.sum()
+            avg_lead_time = int(np.round(np.sum([
+                weights[k] * self.env.lead_times[i, s]
+                for k, s in enumerate(active_suppliers)
+            ])))
+            avg_lead_time = max(1, avg_lead_time)
 
-                inventory_position = on_hand + outstanding
-                # ew_item_i is already float from the calculation methods
-                order_qty_bsp_ew = target_level - inventory_position + ew_item_i 
-                action[i, s] = float(max(0.0, order_qty_bsp_ew)) # Ensure comparison with float 0.0
+            ew_item_i = 0.0
+            if self.waste_estimation_method == "closed_form_approx":
+                ew_item_i = self._calculate_ew_closed_form_approx(i, avg_lead_time)
+            elif self.waste_estimation_method == "deterministic_simulation":
+                ew_item_i = self._calculate_ew_deterministic_simulation(i, avg_lead_time)
+            else: 
+                print(f"Warning: Unknown EW method '{self.waste_estimation_method}' in _get_action_from_policy. Using 0 EW for item {i}.")
+
+            total_order = max(0.0, total_target - inventory_position + ew_item_i)
+
+            # Split order proportionally across active suppliers
+            if total_order > 0.0 and total_target > 0.0:
+                for s in active_suppliers:
+                    fraction = float(bsp_policy_matrix[i, s]) / total_target
+                    action[i, s] = float(fraction * total_order)
         return action
