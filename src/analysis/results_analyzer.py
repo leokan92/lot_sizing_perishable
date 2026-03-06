@@ -1,10 +1,8 @@
 # src/analysis/results_analyzer.py
 
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
-from scipy.stats import mannwhitneyu
+from scipy.stats import mannwhitneyu, wilcoxon
 import os
 import glob
 import re # For parsing filenames
@@ -42,6 +40,7 @@ except NameError:
 # MODIFIED: Define metrics for the summary table, including execution times
 SUMMARY_METRICS_CONFIG = {
     'avg_reward': 'Avg. Total Reward', # Renamed from Total_Episode_Reward to match summary file
+    'pct_vs_bspew': '% vs BSP-EW',     # Derived: (method - bspew) / bspew
     'init_train_time_s': 'Init/Train Time (s)',
     'evaluation_time_s': 'Eval Time (s)',
     'Wastage_Cost': 'Avg. Wastage Cost',
@@ -55,6 +54,7 @@ SUMMARY_TABLE_COLUMN_ORDER = [
     'Setting',
     'Method',
     SUMMARY_METRICS_CONFIG['avg_reward'],
+    SUMMARY_METRICS_CONFIG['pct_vs_bspew'],
     SUMMARY_METRICS_CONFIG['init_train_time_s'],
     SUMMARY_METRICS_CONFIG['evaluation_time_s'],
     SUMMARY_METRICS_CONFIG['Wastage_Cost'],
@@ -64,6 +64,40 @@ SUMMARY_TABLE_COLUMN_ORDER = [
     SUMMARY_METRICS_CONFIG['Step_Reward']
 ]
 
+
+# --- Instance Name Mapping ---
+# Maps internal setting filenames to publication-ready instance names.
+SETTING_TO_INSTANCE_NAME = {
+    'setting_0':  'I-4-2-30-Flat',
+    'setting_1':  'I-4-2-30-L',
+    'setting_2':  'I-4-2-30-H-Demand',
+    'setting_3':  'I-4-2-30-H-Supply',
+    'setting_4':  'I-4-2-30-H-Combined',
+    'setting_5':  'I-4-2-30-L-LongLT',
+    'setting_6':  'I-4-2-30-L-MildSeas',
+    'setting_7':  'I-4-2-30-L-RndSeas-A',
+    'setting_8':  'I-4-2-30-L-RndSeas-B',
+    'setting_9':  'I-4-2-90-L',
+    'setting_10': 'I-10-4-30-L',
+    'setting_11': 'I-10-4-30-H-Demand',
+    'setting_12': 'I-10-4-30-H-Supply',
+    'setting_13': 'I-10-4-30-H-Combined',
+    'setting_14': 'I-10-4-60-H',
+    'setting_15': 'I-20-5-60-H',
+}
+
+# Maps the raw "agent_name (agent_type)" string to a short display name.
+METHOD_DISPLAY_NAME = {
+    'bsp_default (bsp)':                          'BSP',
+    'bsp_ew_default (bsp_ew)':                    'BSP-EW',
+    'cop_default (cop)':                           'COP',
+    'ga_config (pymoo_meta_heuristic)':            'GA',
+    'nsga2_config (pymoo_meta_heuristic)':         'EGA',
+    'pso_config (pymoo_meta_heuristic)':           'PSO',
+    'stable_baselines_default (stable_baselines)': 'PPO',
+    'stable_baselines_dqn (stable_baselines)':     'DQN',
+    'stable_baselines_sac (stable_baselines)':     'SAC',
+}
 
 # --- Helper Functions ---
 def load_latest_summary_file(log_dir):
@@ -79,6 +113,11 @@ def load_latest_summary_file(log_dir):
         # Prepare for merge by creating columns that match the analyzer's conventions
         df.rename(columns={'env_name': 'Setting'}, inplace=True)
         df['Method'] = df['agent_name'] + ' (' + df['agent_type'] + ')'
+        # Replace method names with short display names
+        df['Method'] = df['Method'].map(METHOD_DISPLAY_NAME).fillna(df['Method'])
+        # Keep original setting code for file lookups, then rename for display
+        df['_setting_code'] = df['Setting']
+        df['Setting'] = df['Setting'].map(SETTING_TO_INSTANCE_NAME).fillna(df['Setting'])
         return df
     except Exception as e:
         print(f"Error loading summary file {latest_file}: {e}")
@@ -107,7 +146,9 @@ def calculate_and_merge_detailed_metrics(summary_df):
     print("\n--- Processing detailed simulation logs (*_sim_details.csv) ---")
     for idx, run_summary in summary_df.iterrows():
         # Construct the exact filename for the detailed simulation log
-        detail_filename = f"{run_summary['Setting']}_{run_summary['agent_name']}_{run_summary['agent_type']}_seed{run_summary['seed']}_sim_details.csv"
+        # Use the original setting code (e.g. setting_1) since that is what the files are named with
+        setting_code = run_summary.get('_setting_code', run_summary['Setting'])
+        detail_filename = f"{setting_code}_{run_summary['agent_name']}_{run_summary['agent_type']}_seed{run_summary['seed']}_sim_details.csv"
         detail_filepath = os.path.join(LOG_DIR, detail_filename)
 
         detail_df = load_log_file(detail_filepath)
@@ -154,33 +195,7 @@ def perform_visual_and_stat_analysis(setting_name, setting_perf_df, output_dir, 
         'Holding_Cost', 'Avg_InvLevel_All_Items', 'Step_Reward'
     ]
 
-    print(f"\n--- Generating Box Plots for {setting_name} ---")
     unique_methods = setting_perf_df['Method'].unique()
-    for var in variables_to_analyze:
-        if var not in setting_perf_df.columns:
-            print(f"  Variable '{var}' not found. Skipping box plot.")
-            continue
-
-        plt.figure(figsize=(max(8, 2.5 * len(unique_methods)), 6))
-        plot_title_suffix = ""
-
-        if var == 'Total_Episode_Reward':
-            # This data is per-episode, so we need to drop duplicates to plot correctly
-            plot_data = setting_perf_df[['Method', 'seed', 'Episode', 'Total_Episode_Reward']].drop_duplicates()
-            plot_title_suffix = "(Per Episode)"
-        else:
-            # These are per-step metrics
-            plot_data = setting_perf_df
-            plot_title_suffix = "(Per Step)"
-
-        sns.boxplot(x='Method', y=var, data=plot_data)
-        plt.title(f'{var} Comparison for {escape_latex(setting_name)} {plot_title_suffix}')
-        plt.xticks(rotation=45, ha="right")
-        plt.tight_layout()
-        plot_filename = os.path.join(output_dir, f'{setting_name}_boxplot_{var.replace(" ", "_")}.png')
-        plt.savefig(plot_filename)
-        plt.close()
-        print(f"  Saved box plot: {os.path.basename(plot_filename)}")
 
     print(f"\n--- Generating Statistical Comparison Tables for {setting_name} ---")
     higher_is_better_map = {'Total_Episode_Reward': True, 'Step_Reward': True, 'Wastage_Cost': False, 'Lost_Sales_Cost': False, 'Holding_Cost': False, 'Avg_InvLevel_All_Items': False}
@@ -225,16 +240,173 @@ def perform_visual_and_stat_analysis(setting_name, setting_perf_df, output_dir, 
         print(f"  Saved stat matrix: {os.path.basename(matrix_filename)}")
 
 
-def generate_summary_tables(summary_data_list, column_order, text_path, latex_path):
+# ---------------------------------------------------------------------------
+# Wilcoxon signed-rank bolding logic
+# ---------------------------------------------------------------------------
+# For each (setting, metric) we:
+#   1. Rank the methods by their mean (best first).
+#   2. Compare the best against each subsequent method using a paired
+#      Wilcoxon signed-rank test on per-episode values.
+#   3. All methods whose distribution is NOT significantly different from
+#      the best are marked as bold (they form a "statistical tie group").
+#
+# The function returns a dict:  bold_mask[(setting, method, display_col)] = True
+# ---------------------------------------------------------------------------
+
+# Which display-column names correspond to "higher is better"?
+_HIGHER_IS_BETTER_DISPLAY = {
+    SUMMARY_METRICS_CONFIG['avg_reward'],       # Avg. Total Reward
+    SUMMARY_METRICS_CONFIG['Step_Reward'],       # Avg. Step Reward
+}
+
+# Metrics that should NOT receive bold treatment (execution times, derived cols, etc.)
+_SKIP_BOLD_COLS = {
+    SUMMARY_METRICS_CONFIG['init_train_time_s'],
+    SUMMARY_METRICS_CONFIG['evaluation_time_s'],
+    SUMMARY_METRICS_CONFIG['pct_vs_bspew'],
+}
+
+def _episode_level_series(performance_df, setting, method, metric_internal):
+    """Return a Series indexed by Episode with one value per episode.
+
+    For 'Total_Episode_Reward' the value is already per-episode (sum of
+    step rewards).  For per-step metrics we take the *mean* across steps
+    within each episode so we get one observation per episode.
+    """
+    mask = (performance_df['Setting'] == setting) & (performance_df['Method'] == method)
+    sub = performance_df.loc[mask]
+    if sub.empty or metric_internal not in sub.columns:
+        return pd.Series(dtype=float)
+
+    if metric_internal == 'Total_Episode_Reward':
+        return (
+            sub[['Episode', 'Total_Episode_Reward']]
+            .drop_duplicates()
+            .set_index('Episode')['Total_Episode_Reward']
+            .sort_index()
+        )
+    else:
+        return sub.groupby('Episode')[metric_internal].mean().sort_index()
+
+
+def compute_bold_mask(performance_df, summary_df, alpha=0.05):
+    """Compute which (setting, method, display_col) cells should be bolded.
+
+    Returns
+    -------
+    bold_mask : dict
+        Keys are (setting, method, display_col_name) tuples; values are True.
+    """
+    bold_mask = {}
+    if performance_df is None:
+        return bold_mask
+
+    # Map from display column name -> internal column name used in performance_df
+    display_to_internal = {
+        SUMMARY_METRICS_CONFIG['avg_reward']: 'Total_Episode_Reward',
+        SUMMARY_METRICS_CONFIG['Wastage_Cost']: 'Wastage_Cost',
+        SUMMARY_METRICS_CONFIG['Lost_Sales_Cost']: 'Lost_Sales_Cost',
+        SUMMARY_METRICS_CONFIG['Holding_Cost']: 'Holding_Cost',
+        SUMMARY_METRICS_CONFIG['Avg_InvLevel_All_Items']: 'Avg_InvLevel_All_Items',
+        SUMMARY_METRICS_CONFIG['Step_Reward']: 'Step_Reward',
+    }
+
+    settings = performance_df['Setting'].unique()
+    for setting in settings:
+        methods_in_setting = performance_df.loc[
+            performance_df['Setting'] == setting, 'Method'
+        ].unique()
+
+        for display_col, internal_col in display_to_internal.items():
+            if display_col in _SKIP_BOLD_COLS:
+                continue
+
+            higher_better = display_col in _HIGHER_IS_BETTER_DISPLAY
+
+            # Collect per-episode distributions for every method
+            method_series = {}
+            method_means = {}
+            for m in methods_in_setting:
+                s = _episode_level_series(performance_df, setting, m, internal_col)
+                if s.empty:
+                    continue
+                method_series[m] = s
+                method_means[m] = s.mean()
+
+            if not method_means:
+                continue
+
+            # Sort methods: best first
+            sorted_methods = sorted(
+                method_means.keys(),
+                key=lambda m: method_means[m],
+                reverse=higher_better,
+            )
+
+            best_method = sorted_methods[0]
+            best_data = method_series[best_method]
+
+            # The best is always bolded
+            bold_mask[(setting, best_method, display_col)] = True
+
+            # Compare best against each subsequent method
+            for other in sorted_methods[1:]:
+                other_data = method_series[other]
+
+                # Align by episode index so the test is truly paired
+                common_idx = best_data.index.intersection(other_data.index)
+                if len(common_idx) < 6:
+                    # Too few paired observations for a meaningful test;
+                    # conservatively do NOT bold the other method.
+                    break
+
+                a = best_data.loc[common_idx].values
+                b = other_data.loc[common_idx].values
+                diff = a - b
+
+                # If all differences are zero the distributions are identical
+                if np.all(diff == 0):
+                    bold_mask[(setting, other, display_col)] = True
+                    continue
+
+                try:
+                    _, p = wilcoxon(a, b, alternative='two-sided')
+                except ValueError:
+                    # e.g. all-zero differences handled above, but just in case
+                    bold_mask[(setting, other, display_col)] = True
+                    continue
+
+                if p >= alpha:
+                    # NOT significantly different from best -> bold it too
+                    bold_mask[(setting, other, display_col)] = True
+                else:
+                    # Significantly worse -> stop expanding the tie group
+                    break
+
+    n_bold = len(bold_mask)
+    print(f"\n--- Wilcoxon Signed-Rank Bold Mask ---")
+    print(f"  Total bold cells: {n_bold}  (alpha={alpha})")
+    return bold_mask
+
+
+def generate_summary_tables(summary_data_list, column_order, text_path, latex_path,
+                            bold_mask=None):
     if not summary_data_list:
         print("No summary data to write to files.")
         return
+    if bold_mask is None:
+        bold_mask = {}
 
     df_summary = pd.DataFrame(summary_data_list)
     # Ensure all columns exist, fill with NaN if not
     for col in column_order:
         if col not in df_summary.columns: df_summary[col] = np.nan
     df_summary = df_summary[column_order]
+
+    # Sort rows by the original setting order (as defined in SETTING_TO_INSTANCE_NAME)
+    _instance_order = {name: idx for idx, name in enumerate(SETTING_TO_INSTANCE_NAME.values())}
+    df_summary['_sort_key'] = df_summary['Setting'].map(_instance_order).fillna(999)
+    df_summary = df_summary.sort_values(['_sort_key', 'Method']).drop(columns='_sort_key').reset_index(drop=True)
 
     # --- CSV/Text File ---
     df_summary_to_csv = df_summary.copy()
@@ -254,7 +426,7 @@ def generate_summary_tables(summary_data_list, column_order, text_path, latex_pa
     print("\n--- Summary Table (for console log) ---")
     print(df_display.to_string(index=False))
 
-    # --- LaTeX File ---
+    # --- LaTeX File (with bold best-group cells) ---
     num_metric_cols = len(column_order) - 2
     col_spec = "ll" + "r" * num_metric_cols
     latex_string = "\\begin{table}[htbp]\n  \\centering\n"
@@ -262,10 +434,28 @@ def generate_summary_tables(summary_data_list, column_order, text_path, latex_pa
     latex_string += f"  \\begin{{tabular}}{{{col_spec}}}\n    \\toprule\n"
     header = " & ".join([escape_latex(col) for col in df_display.columns]) + " \\\\\n"
     latex_string += f"    {header}    \\midrule\n"
-    for _, row in df_display.iterrows():
-        latex_string += "    " + " & ".join(row.values) + " \\\\\n"
+
+    for row_idx, row in df_summary.iterrows():
+        setting_raw = row['Setting']
+        method_raw = row['Method']
+        cells = []
+        for col in column_order:
+            if col == 'Setting':
+                cells.append(escape_latex(str(setting_raw)))
+            elif col == 'Method':
+                cells.append(escape_latex(str(method_raw)))
+            else:
+                val = row[col]
+                formatted = f"{val:.2f}" if pd.notnull(val) else "-"
+                if bold_mask.get((setting_raw, method_raw, col), False):
+                    formatted = "\\textbf{" + formatted + "}"
+                cells.append(formatted)
+        latex_string += "    " + " & ".join(cells) + " \\\\\n"
+
     latex_string += "    \\bottomrule\n  \\end{tabular}\n\\end{table}\n"
     latex_string += "% Note: Ensure the 'booktabs' package is included in your LaTeX preamble.\n"
+    latex_string += "% Bold values indicate methods belonging to the best statistical group\n"
+    latex_string += "% (Wilcoxon signed-rank test, p >= 0.05 vs. the best method).\n"
     with open(latex_path, 'w', encoding='utf-8') as f: f.write(latex_string)
     print(f"\nSummary table saved to LaTeX file: {os.path.basename(latex_path)}")
     print("\n--- LaTeX Table Code ---")
@@ -343,8 +533,29 @@ if __name__ == '__main__':
                 summary_data_for_table.append(renamed_dict)
 
 
-            # Step 5: Generate and save the final summary tables
-            generate_summary_tables(summary_data_for_table, SUMMARY_TABLE_COLUMN_ORDER, summary_text_table_path, summary_latex_table_path)
+            # Step 5: Compute % vs BSP-EW for each setting
+            pct_col = SUMMARY_METRICS_CONFIG['pct_vs_bspew']
+            reward_col = SUMMARY_METRICS_CONFIG['avg_reward']
+            bspew_reward_by_setting = {}
+            for rd in summary_data_for_table:
+                method_str = rd.get('Method', '')
+                if 'bsp_ew' in method_str.lower():
+                    bspew_reward_by_setting[rd['Setting']] = rd.get(reward_col, np.nan)
+            for rd in summary_data_for_table:
+                bspew_val = bspew_reward_by_setting.get(rd['Setting'], np.nan)
+                method_val = rd.get(reward_col, np.nan)
+                if pd.notnull(bspew_val) and bspew_val != 0 and pd.notnull(method_val):
+                    rd[pct_col] = (method_val - bspew_val) / bspew_val
+                else:
+                    rd[pct_col] = np.nan
+
+            # Step 6: Compute Wilcoxon bold mask
+            bold_mask = compute_bold_mask(performance_df, summary_df, alpha=0.05)
+
+            # Step 7: Generate and save the final summary tables
+            generate_summary_tables(summary_data_for_table, SUMMARY_TABLE_COLUMN_ORDER,
+                                    summary_text_table_path, summary_latex_table_path,
+                                    bold_mask=bold_mask)
 
             print("-" * 50 + "\nAnalysis script finished successfully.")
     finally:

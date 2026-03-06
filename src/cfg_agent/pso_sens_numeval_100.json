@@ -1,0 +1,62 @@
+{
+    "agent_type": "pymoo_meta_heuristic",
+    "params": {
+        "algorithm_config": {
+            "name": "PSO",
+            "params": {
+                "pop_size": 30,
+                "n_gen": 50
+            }
+        },
+        "num_optimize_eval_episodes": 100,
+        "num_final_eval_episodes": 50,
+        "quantity_options": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15
+        ],
+        "base_stock_level_options": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            12,
+            14,
+            16,
+            18,
+            20,
+            22,
+            24,
+            26
+        ],
+        "bspew_waste_estimation_method": "deterministic_simulation",
+        "bspew_waste_horizon_review_periods": 1,
+        "bspew_num_ew_demand_sim_paths": 30,
+        "logger_settings": {
+            "log_step_details": true,
+            "log_dir": "./src/results/simulation_logs/",
+            "experiment_name": "pso_sensitivity_run",
+            "log_actions": true
+        }
+    }
+}
