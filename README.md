@@ -21,7 +21,7 @@ Our primary contribution is verifying that this item-level policy construction y
 
 ## Project Overview
 
-This repository contains the source code and experimental setup for the research paper titled "Optimizing Integrated Procurement and Perishable Inventory Policies with Population-Based Metaheuristics". The project focuses on developing and benchmarking control strategies for complex perishable inventory management problems characterized by stochastic demand, unreliable suppliers, and multi-item, multi-supplier sourcing.
+This repository contains the source code and experimental setup for the research paper titled "Automatic Policy Search using Population-Based Hyper-heuristics for the Integrated Procurement and Perishable Inventory Problem". The project focuses on developing and benchmarking control strategies for complex perishable inventory management problems characterized by stochastic demand, unreliable suppliers, and multi-item, multi-supplier sourcing.
 
 The core of the project is a custom discrete-event simulation environment and a collection of agents implementing various control policies, from simple heuristics to advanced metaheuristic-driven approaches.
 
