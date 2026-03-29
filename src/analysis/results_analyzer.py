@@ -2,7 +2,7 @@
 
 import pandas as pd
 import numpy as np
-from scipy.stats import mannwhitneyu, wilcoxon
+from scipy.stats import wilcoxon
 import os
 import glob
 import re # For parsing filenames
@@ -207,25 +207,34 @@ def perform_visual_and_stat_analysis(setting_name, setting_perf_df, output_dir, 
         np.fill_diagonal(comparison_matrix.values, '-')
 
         data_for_var_by_method = {}
-        if var == 'Total_Episode_Reward':
-            unique_ep_rewards = setting_perf_df[['Method', 'seed', 'Episode', 'Total_Episode_Reward']].drop_duplicates()
-            for method in unique_methods: data_for_var_by_method[method] = unique_ep_rewards[unique_ep_rewards['Method'] == method][var]
-        else:
-            for method in unique_methods: data_for_var_by_method[method] = setting_perf_df[setting_perf_df['Method'] == method][var].dropna()
+        for method in unique_methods:
+            data_for_var_by_method[method] = _episode_level_series(setting_perf_df, setting_name, method, var)
 
         for i in range(len(unique_methods)):
             for j in range(i + 1, len(unique_methods)):
                 method_A, method_B = unique_methods[i], unique_methods[j]
                 data_A, data_B = data_for_var_by_method[method_A], data_for_var_by_method[method_B]
-                if data_A.empty or data_B.empty or data_A.nunique() < 2 or data_B.nunique() < 2:
+                if data_A.empty or data_B.empty:
                     comparison_matrix.loc[method_A, method_B] = comparison_matrix.loc[method_B, method_A] = "NA (data)"
                     continue
+
+                common_idx = data_A.index.intersection(data_B.index)
+                if len(common_idx) < 6:
+                    comparison_matrix.loc[method_A, method_B] = comparison_matrix.loc[method_B, method_A] = "NA (paired)"
+                    continue
+
+                aligned_A = data_A.loc[common_idx]
+                aligned_B = data_B.loc[common_idx]
+                if aligned_A.nunique() < 2 and aligned_B.nunique() < 2 and np.all(aligned_A.values == aligned_B.values):
+                    comparison_matrix.loc[method_A, method_B] = comparison_matrix.loc[method_B, method_A] = "NS"
+                    continue
+
                 try:
-                    _, p_value = mannwhitneyu(data_A, data_B, alternative='two-sided')
+                    _, p_value = wilcoxon(aligned_A.values, aligned_B.values, alternative='two-sided')
                     is_significant = p_value < alpha
                     result_str = "NS"
                     if is_significant:
-                        median_A, median_B = data_A.median(), data_B.median()
+                        median_A, median_B = aligned_A.median(), aligned_B.median()
                         is_A_better = (median_A > median_B) if higher_is_better_map.get(var, False) else (median_A < median_B)
                         result_str = f"{escape_latex(method_A) if is_A_better else escape_latex(method_B)} **"
                     comparison_matrix.loc[method_A, method_B] = comparison_matrix.loc[method_B, method_A] = result_str
@@ -246,7 +255,8 @@ def perform_visual_and_stat_analysis(setting_name, setting_perf_df, output_dir, 
 # For each (setting, metric) we:
 #   1. Rank the methods by their mean (best first).
 #   2. Compare the best against each subsequent method using a paired
-#      Wilcoxon signed-rank test on per-episode values.
+#      Wilcoxon signed-rank test on per-episode values aligned by
+#      (seed, Episode).
 #   3. All methods whose distribution is NOT significantly different from
 #      the best are marked as bold (they form a "statistical tie group").
 #
@@ -267,11 +277,11 @@ _SKIP_BOLD_COLS = {
 }
 
 def _episode_level_series(performance_df, setting, method, metric_internal):
-    """Return a Series indexed by Episode with one value per episode.
+    """Return a Series indexed by (seed, Episode) with one value per episode.
 
     For 'Total_Episode_Reward' the value is already per-episode (sum of
     step rewards).  For per-step metrics we take the *mean* across steps
-    within each episode so we get one observation per episode.
+    within each episode so we get one paired observation per seed/episode.
     """
     mask = (performance_df['Setting'] == setting) & (performance_df['Method'] == method)
     sub = performance_df.loc[mask]
@@ -280,13 +290,13 @@ def _episode_level_series(performance_df, setting, method, metric_internal):
 
     if metric_internal == 'Total_Episode_Reward':
         return (
-            sub[['Episode', 'Total_Episode_Reward']]
+            sub[['seed', 'Episode', 'Total_Episode_Reward']]
             .drop_duplicates()
-            .set_index('Episode')['Total_Episode_Reward']
+            .set_index(['seed', 'Episode'])['Total_Episode_Reward']
             .sort_index()
         )
     else:
-        return sub.groupby('Episode')[metric_internal].mean().sort_index()
+        return sub.groupby(['seed', 'Episode'])[metric_internal].mean().sort_index()
 
 
 def compute_bold_mask(performance_df, summary_df, alpha=0.05):

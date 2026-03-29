@@ -13,7 +13,6 @@ try:
     from pymoo.algorithms.soo.nonconvex.ga import GA
     from pymoo.algorithms.moo.nsga2 import NSGA2
     from pymoo.algorithms.soo.nonconvex.pso import PSO
-    from pymoo.operators.sampling.rnd import IntegerRandomSampling
     from pymoo.operators.crossover.sbx import SBX
     from pymoo.operators.crossover.pntx import SinglePointCrossover
     from pymoo.operators.mutation.pm import PM, PolynomialMutation
@@ -45,29 +44,26 @@ class InventoryOptimizationProblem(Problem):
     def __init__(self, agent_instance):
         self.agent = agent_instance
         self.n_items = agent_instance.n_items
+        self.n_suppliers = agent_instance.n_suppliers
 
-        n_vars = self.n_items * 3
-        
+        # Per item: heuristic_id, param_idx, w_0, ..., w_{n_suppliers-1}
+        self._vars_per_item = 2 + self.n_suppliers
+        n_vars = self.n_items * self._vars_per_item
+
+        # Track which variable indices are discrete (need rounding)
+        self._discrete_mask = np.zeros(n_vars, dtype=bool)
+
         xl, xu = [], []
         for i in range(self.n_items):
-            epsilon = 1e-9 # A small number to add to the upper bound if xl == xu
-            valid_suppliers = np.where(self.agent.item_supplier_matrix[i, :] == 1)[0]
-            _xl_supp = 0.0
-            _xu_supp = float(len(valid_suppliers) - 1 if len(valid_suppliers) > 0 else 0)
-            if _xl_supp >= _xu_supp:
-                _xu_supp = _xl_supp + epsilon
-            xl.append(_xl_supp)
-            xu.append(_xu_supp)
+            epsilon = 1e-9
+            base_idx = i * self._vars_per_item
 
-            # Variable 2: Heuristic ID
-            _xl_heur = 0.0
-            _xu_heur = 2.0
-            if _xl_heur >= _xu_heur: # Unlikely here, but good practice
-                 _xu_heur = _xl_heur + epsilon
-            xl.append(_xl_heur)
-            xu.append(_xu_heur)
+            # Variable 1: Heuristic ID (discrete: 0, 1, 2)
+            xl.append(0.0)
+            xu.append(2.0)
+            self._discrete_mask[base_idx] = True
 
-            # Variable 3: Parameter Index
+            # Variable 2: Parameter Index (discrete)
             max_param_len = max(len(self.agent.quantity_options), len(self.agent.base_stock_level_options))
             _xl_param = 0.0
             _xu_param = float(max_param_len - 1 if max_param_len > 0 else 0)
@@ -75,12 +71,21 @@ class InventoryOptimizationProblem(Problem):
                 _xu_param = _xl_param + epsilon
             xl.append(_xl_param)
             xu.append(_xu_param)
-        
+            self._discrete_mask[base_idx + 1] = True
+
+            # Variables 3+: Supplier allocation weights (continuous)
+            for s in range(self.n_suppliers):
+                xl.append(0.0)
+                xu.append(10.0)
+
         super().__init__(n_var=n_vars, n_obj=1, n_constr=0, xl=np.array(xl), xu=np.array(xu))
 
-    # Optional: if pymoo calls problem.repair, keep consistent with our repair class
     def repair(self, X, *args, **kwargs):
-        Xr = np.rint(X)
+        Xr = np.array(X, dtype=float, copy=True)
+        if Xr.ndim == 1:
+            Xr[self._discrete_mask] = np.rint(Xr[self._discrete_mask])
+        else:
+            Xr[:, self._discrete_mask] = np.rint(X[:, self._discrete_mask])
         return np.clip(Xr, self.xl, self.xu)
 
     def _evaluate(self, X, out, *args, **kwargs):
@@ -125,14 +130,12 @@ class InventoryOptimizationProblem(Problem):
         xi = np.asarray(x_individual)
         if xi.ndim > 1:
             xi = xi.ravel()
-        # Convert to float to avoid numpy array scalars blocking round()
         try:
             xi = xi.astype(float, copy=False)
         except Exception:
             xi = np.array([float(v) for v in xi.ravel()])
 
         def _to_int_rounded(v: float) -> int:
-            # robust rounding to int
             try:
                 return int(np.rint(float(v)))
             except Exception:
@@ -140,24 +143,14 @@ class InventoryOptimizationProblem(Problem):
 
         chromosome = []
         for i in range(self.n_items):
-            base_idx = i * 3
-
-            # Supplier index within the valid list for this item
-            valid_suppliers = np.where(self.agent.item_supplier_matrix[i, :] == 1)[0]
-            if not valid_suppliers.size:
-                supplier_idx = 0
-            else:
-                vs_idx = _to_int_rounded(xi[base_idx])
-                # Clip to the available supplier list bounds
-                vs_idx = int(np.clip(vs_idx, 0, len(valid_suppliers) - 1))
-                supplier_idx = int(valid_suppliers[vs_idx])
+            base_idx = i * self._vars_per_item
 
             # Heuristic id in [0, 2]
-            heuristic_id = _to_int_rounded(xi[base_idx + 1])
+            heuristic_id = _to_int_rounded(xi[base_idx])
             heuristic_id = int(np.clip(heuristic_id, HEURISTIC_COP, HEURISTIC_BSPEW))
 
-            # Parameter index for either quantity or base-stock options
-            p_idx = _to_int_rounded(xi[base_idx + 2])
+            # Parameter index
+            p_idx = _to_int_rounded(xi[base_idx + 1])
             param_value = 0.0
             if heuristic_id == HEURISTIC_COP:
                 options = self.agent.quantity_options or []
@@ -168,15 +161,36 @@ class InventoryOptimizationProblem(Problem):
                 p_idx = int(np.clip(p_idx, 0, len(options) - 1))
                 param_value = float(options[p_idx])
 
-            chromosome.append((int(supplier_idx), int(heuristic_id), float(param_value)))
+            # Supplier allocation weights (continuous)
+            raw_weights = np.maximum(xi[base_idx + 2 : base_idx + 2 + self.n_suppliers], 0.0)
+            valid_mask = self.agent.item_supplier_matrix[i, :].astype(float)
+            raw_weights = raw_weights * valid_mask
+
+            total_w = raw_weights.sum()
+            if total_w > 1e-9:
+                weights = (raw_weights / total_w).tolist()
+            else:
+                # Fallback: equal weight across valid suppliers
+                valid_suppliers = np.where(valid_mask > 0)[0]
+                weights = np.zeros(self.n_suppliers, dtype=float)
+                if len(valid_suppliers) > 0:
+                    weights[valid_suppliers] = 1.0 / len(valid_suppliers)
+                weights = weights.tolist()
+
+            chromosome.append((int(heuristic_id), float(param_value), weights))
         return chromosome
 
 
 class RoundClipRepair(Repair):
-    """Round all decision variables and clip to bounds.
-    Ensures PSO particles align to discrete grid and stay within [xl, xu]."""
+    """Round discrete decision variables and clip all to bounds.
+    Keeps supplier allocation weights continuous while snapping
+    heuristic_id and param_idx to the integer grid."""
     def _do(self, problem, X, **kwargs):
-        Xr = np.rint(X)
+        Xr = X.copy()
+        if hasattr(problem, '_discrete_mask'):
+            Xr[:, problem._discrete_mask] = np.rint(X[:, problem._discrete_mask])
+        else:
+            Xr = np.rint(X)
         return np.clip(Xr, problem.xl, problem.xu)
 
 
@@ -230,10 +244,30 @@ class PymooMetaHeuristicAgent:
         if self.load_policy_path:
             print(f"\n--- Loading Pre-optimized Meta-Heuristic Policy ---")
             try:
-                with open(self.load_policy_path, 'r') as f: self.best_chromosome = json.load(f)
+                with open(self.load_policy_path, 'r') as f: loaded_data = json.load(f)
                 print(f"Policy successfully loaded from: {self.load_policy_path}")
-                if not isinstance(self.best_chromosome, list) or len(self.best_chromosome) != self.n_items:
+                if not isinstance(loaded_data, list) or len(loaded_data) != self.n_items:
                     raise ValueError("Loaded policy has incorrect format or length.")
+                # Detect and convert old format: (supplier_idx, heuristic_id, param_value)
+                # New format: (heuristic_id, param_value, [w0, w1, ...])
+                converted = []
+                for idx, gene in enumerate(loaded_data):
+                    if len(gene) == 3 and isinstance(gene[2], list):
+                        # New format
+                        converted.append(tuple(gene))
+                    elif len(gene) == 3 and not isinstance(gene[2], list):
+                        # Old format: convert single-supplier to weight vector
+                        old_supplier_idx = int(gene[0])
+                        heuristic_id = int(gene[1])
+                        param_value = float(gene[2])
+                        weights = [0.0] * self.n_suppliers
+                        if 0 <= old_supplier_idx < self.n_suppliers:
+                            weights[old_supplier_idx] = 1.0
+                        converted.append((heuristic_id, param_value, weights))
+                        print(f"  Converted gene {idx} from old format (supplier={old_supplier_idx}) to weight vector.")
+                    else:
+                        raise ValueError(f"Gene {idx} has unrecognized format: {gene}")
+                self.best_chromosome = converted
                 print(f"Loaded Policy (Chromosome):\n{self.best_chromosome}")
             except Exception as e:
                 print(f"Error loading policy from '{self.load_policy_path}': {e}. Will optimize.", file=sys.stderr)
@@ -272,17 +306,17 @@ class PymooMetaHeuristicAgent:
         if algo_name == "GA":
             algorithm = GA(
                 pop_size=pop_size,
-                sampling=IntegerRandomSampling(),
                 crossover=SBX(prob=algo_params.get("crossover_rate", 0.9), eta=15),
                 mutation=PM(prob=algo_params.get("mutation_rate", 0.15), eta=20),
+                repair=RoundClipRepair(),
                 eliminate_duplicates=True
             )
         elif algo_name == "NSGA2":
             algorithm = NSGA2(
                 pop_size=pop_size,
-                sampling=IntegerRandomSampling(),
                 crossover=SBX(prob=algo_params.get("crossover_rate", 0.9), eta=15),
                 mutation=PM(prob=algo_params.get("mutation_rate", 0.15), eta=20),
+                repair=RoundClipRepair(),
                 eliminate_duplicates=True
             )
         elif algo_name == "PSO":
@@ -338,15 +372,24 @@ class PymooMetaHeuristicAgent:
             print(f"Best Fitness found (avg reward): {best_fitness:.2f}")
         else:
             print("Pymoo Error: Optimization did not return a solution. Using a default.", file=sys.stderr)
-            default_gene = (0, HEURISTIC_COP, 0.0)
-            self.best_chromosome = [default_gene for _ in range(self.n_items)]
+            default_chromosome = []
+            for i in range(self.n_items):
+                valid_s = np.where(self.item_supplier_matrix[i, :] == 1)[0]
+                w = [0.0] * self.n_suppliers
+                if len(valid_s) > 0:
+                    for s in valid_s:
+                        w[s] = 1.0 / len(valid_s)
+                else:
+                    w[0] = 1.0
+                default_chromosome.append((HEURISTIC_COP, 0.0, w))
+            self.best_chromosome = default_chromosome
 
     def _get_action_from_chromosome(self, chromosome):
         action_matrix = np.zeros((self.n_items, self.n_suppliers), dtype=np.float32)
         current_outstanding_orders_all_items = self._calculate_outstanding_orders()
         for i in range(self.n_items):
             if i >= len(chromosome): continue
-            supplier_idx, heuristic_id, param_value = chromosome[i]
+            heuristic_id, param_value, weights = chromosome[i]
             order_qty = 0.0
             if heuristic_id == HEURISTIC_COP:
                 order_qty = param_value
@@ -355,10 +398,16 @@ class PymooMetaHeuristicAgent:
                 if heuristic_id == HEURISTIC_BSP:
                     order_qty = param_value - inv_pos
                 else: # HEURISTIC_BSPEW
-                    chosen_supplier_lead_time = int(self.env.lead_times[i, supplier_idx])
+                    # Use lead time of primary supplier (highest allocation weight)
+                    primary_supplier = int(np.argmax(weights))
+                    chosen_supplier_lead_time = int(self.env.lead_times[i, primary_supplier])
                     ew_item_i = self._calculate_ew_deterministic_simulation(i, chosen_supplier_lead_time)
                     order_qty = param_value - inv_pos + ew_item_i
-            action_matrix[i, supplier_idx] = float(max(0.0, order_qty))
+            total_order = float(max(0.0, order_qty))
+            if total_order > 0:
+                for s in range(self.n_suppliers):
+                    if weights[s] > 1e-9:
+                        action_matrix[i, s] = float(total_order * weights[s])
         return action_matrix
 
     def run(self, render_steps=False, verbose=False):

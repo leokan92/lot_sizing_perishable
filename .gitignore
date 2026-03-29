@@ -4,3 +4,4 @@ src/analysis/*
 
 # M5 dataset (large files)
 m5_analysis/data/
+*.tex
