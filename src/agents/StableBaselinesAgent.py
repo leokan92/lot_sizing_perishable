@@ -71,17 +71,19 @@ class _SB3PerishableEnvWrapper(gym.Env):
         catalog = np.zeros((self.dqn_num_actions, self.n_items, self.n_suppliers), dtype=np.float32)
         valid_positions = np.argwhere(self.item_supplier_matrix == 1)
 
+        # Build per-item list of valid suppliers
+        item_valid = {}
+        for i, s in valid_positions:
+            item_valid.setdefault(int(i), []).append(int(s))
+
         for a in range(self.dqn_num_actions):
             if len(valid_positions) == 0:
                 break
-
-            n_active = int(rng.integers(low=1, high=min(4, len(valid_positions)) + 1))
-            chosen = rng.choice(len(valid_positions), size=n_active, replace=False)
-
-            for idx in chosen:
-                i, s = valid_positions[idx]
+            # For each item, pick exactly one supplier and a random quantity
+            for i_item, suppliers in item_valid.items():
+                s_chosen = suppliers[int(rng.integers(0, len(suppliers)))]
                 qty = int(rng.integers(0, self.max_order_quantity + 1))
-                catalog[a, i, s] = float(qty)
+                catalog[a, i_item, s_chosen] = float(qty)
 
         self._dqn_action_catalog = catalog
 
@@ -103,6 +105,16 @@ class _SB3PerishableEnvWrapper(gym.Env):
                 action_matrix[i, s] = flat[k]
             action_matrix = np.floor(np.maximum(0.0, action_matrix)).astype(np.float32)
             action_matrix = np.minimum(action_matrix, float(self.max_order_quantity))
+
+            # Enforce single supplier per item: keep only the supplier with the
+            # highest quantity for each item, zero out the rest.
+            for i in range(self.n_items):
+                row = action_matrix[i, :]
+                if np.count_nonzero(row) > 1:
+                    best_s = int(np.argmax(row))
+                    qty = row[best_s]
+                    action_matrix[i, :] = 0.0
+                    action_matrix[i, best_s] = qty
 
         return action_matrix
 
