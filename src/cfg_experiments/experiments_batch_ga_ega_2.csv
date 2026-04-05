@@ -1,0 +1,11 @@
+env_name;agent_name;start_seed;num_seeds;load_policy_file;save_policy_file;render;verbose
+setting_6;ga_config;42;1;;./src/results/policies/6_ga_config_optimized.json;FALSE;FALSE
+setting_6;nsga2_config;42;1;;./src/results/policies/6_nsga2_config_optimized.json;FALSE;FALSE
+setting_7;ga_config;42;1;;./src/results/policies/7_ga_config_optimized.json;FALSE;FALSE
+setting_7;nsga2_config;42;1;;./src/results/policies/7_nsga2_config_optimized.json;FALSE;FALSE
+setting_8;ga_config;42;1;;./src/results/policies/8_ga_config_optimized.json;FALSE;FALSE
+setting_8;nsga2_config;42;1;;./src/results/policies/8_nsga2_config_optimized.json;FALSE;FALSE
+setting_9;ga_config;42;1;;./src/results/policies/9_ga_config_optimized.json;FALSE;FALSE
+setting_9;nsga2_config;42;1;;./src/results/policies/9_nsga2_config_optimized.json;FALSE;FALSE
+setting_10;ga_config;42;1;;./src/results/policies/10_ga_config_optimized.json;FALSE;FALSE
+setting_10;nsga2_config;42;1;;./src/results/policies/10_nsga2_config_optimized.json;FALSE;FALSE

@@ -549,7 +549,7 @@ if __name__ == '__main__':
             bspew_reward_by_setting = {}
             for rd in summary_data_for_table:
                 method_str = rd.get('Method', '')
-                if 'bsp_ew' in method_str.lower():
+                if method_str == 'BSP-EW' or 'bsp_ew' in method_str.lower() or 'bsp-ew' in method_str.lower():
                     bspew_reward_by_setting[rd['Setting']] = rd.get(reward_col, np.nan)
             for rd in summary_data_for_table:
                 bspew_val = bspew_reward_by_setting.get(rd['Setting'], np.nan)

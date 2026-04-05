@@ -272,7 +272,7 @@ class PymooMetaHeuristicAgent:
                 pop_size=pop_size,
                 sampling=IntegerRandomSampling(),
                 crossover=SBX(prob=algo_params.get("crossover_rate", 0.9), eta=15),
-                mutation=PM(eta=20),
+                mutation=PM(prob=algo_params.get("mutation_rate", 0.15), eta=20),
                 eliminate_duplicates=True
             )
         elif algo_name == "NSGA2":
@@ -280,7 +280,7 @@ class PymooMetaHeuristicAgent:
                 pop_size=pop_size,
                 sampling=IntegerRandomSampling(),
                 crossover=SBX(prob=algo_params.get("crossover_rate", 0.9), eta=15),
-                mutation=PM(eta=20),
+                mutation=PM(prob=algo_params.get("mutation_rate", 0.15), eta=20),
                 eliminate_duplicates=True
             )
         elif algo_name == "PSO":

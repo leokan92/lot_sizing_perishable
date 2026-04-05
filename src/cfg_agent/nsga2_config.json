@@ -4,7 +4,7 @@
         "algorithm_config": {
             "name": "NSGA2",
             "params": {
-                "pop_size": 30,
+                "pop_size": 100,
                 "n_gen": 50
             }
         },

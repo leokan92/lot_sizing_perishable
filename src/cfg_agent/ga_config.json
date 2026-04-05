@@ -4,7 +4,7 @@
         "algorithm_config": {
             "name": "GA",
             "params": {
-                "pop_size": 30,
+                "pop_size": 100,
                 "n_gen": 50,
                 "crossover_rate": 0.8,
                 "mutation_rate": 0.15
