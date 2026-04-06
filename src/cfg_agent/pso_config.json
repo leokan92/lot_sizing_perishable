@@ -4,7 +4,7 @@
         "algorithm_config": {
             "name": "PSO",
             "params": {
-                "pop_size": 30,
+                "pop_size": 50,
                 "n_gen": 50
             }
         },

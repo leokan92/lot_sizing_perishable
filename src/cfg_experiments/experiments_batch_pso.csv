@@ -1,0 +1,17 @@
+env_name;agent_name;start_seed;num_seeds;load_policy_file;save_policy_file;render;verbose
+setting_0;pso_config;42;1;;./src/results/policies/0_pso_config_optimized.json;FALSE;FALSE
+setting_1;pso_config;42;1;;./src/results/policies/1_pso_config_optimized.json;FALSE;FALSE
+setting_2;pso_config;42;1;;./src/results/policies/2_pso_config_optimized.json;FALSE;FALSE
+setting_3;pso_config;42;1;;./src/results/policies/3_pso_config_optimized.json;FALSE;FALSE
+setting_4;pso_config;42;1;;./src/results/policies/4_pso_config_optimized.json;FALSE;FALSE
+setting_5;pso_config;42;1;;./src/results/policies/5_pso_config_optimized.json;FALSE;FALSE
+setting_6;pso_config;42;1;;./src/results/policies/6_pso_config_optimized.json;FALSE;FALSE
+setting_7;pso_config;42;1;;./src/results/policies/7_pso_config_optimized.json;FALSE;FALSE
+setting_8;pso_config;42;1;;./src/results/policies/8_pso_config_optimized.json;FALSE;FALSE
+setting_9;pso_config;42;1;;./src/results/policies/9_pso_config_optimized.json;FALSE;FALSE
+setting_10;pso_config;42;1;;./src/results/policies/10_pso_config_optimized.json;FALSE;FALSE
+setting_11;pso_config;42;1;;./src/results/policies/11_pso_config_optimized.json;FALSE;FALSE
+setting_12;pso_config;42;1;;./src/results/policies/12_pso_config_optimized.json;FALSE;FALSE
+setting_13;pso_config;42;1;;./src/results/policies/13_pso_config_optimized.json;FALSE;FALSE
+setting_14;pso_config;42;1;;./src/results/policies/14_pso_config_optimized.json;FALSE;FALSE
+setting_15;pso_config;42;1;;./src/results/policies/15_pso_config_optimized.json;FALSE;FALSE
