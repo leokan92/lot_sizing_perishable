@@ -1,5 +1,16 @@
 import os
 import sys
+
+# Pin BLAS/OMP thread pools to 1 BEFORE numpy is imported. This applies to:
+#   - The parent process (so sequential --num_workers 1 runs with 1 BLAS thread too).
+#   - All spawn workers (they inherit these env vars on creation).
+# Without this, each spawned worker would import numpy with whatever the OS-default
+# thread count is and fight other workers for cores — which we measured as a 40%
+# per-task slowdown.
+for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+             "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_var, "1")
+
 import json
 import argparse
 import random
@@ -8,6 +19,8 @@ import time
 import importlib
 import pandas as pd # For reading the CSV batch file
 from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing as mp
 
 def set_seed(seed_value):
     np.random.seed(seed_value)
@@ -243,6 +256,116 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
     }
 
 
+def _worker_run(payload):
+    """Worker entry point: pin thread pools to 1, then call run_experiment.
+
+    Must be top-level (picklable) for Windows spawn-based ProcessPoolExecutor.
+    """
+    exp_row_dict, current_seed, default_config_dirs = payload
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+        os.environ.setdefault(var, "1")
+    try:
+        import torch
+        torch.set_num_threads(1)
+    except ImportError:
+        pass
+    return run_experiment(exp_row_dict, current_seed, default_config_dirs)
+
+
+def _start_resource_monitor(out_path, interval=2.0):
+    """Sample RSS/CPU%/threads for the parent and all descendants every `interval` s.
+
+    Returns a (stop_event, thread) pair; call stop_event.set() to terminate.
+    No-op (returns None, None) if psutil is unavailable.
+    """
+    try:
+        import psutil
+    except ImportError:
+        print("psutil not installed; skipping resource monitor. `pip install psutil` to enable.", file=sys.stderr)
+        return None, None
+    import threading, csv
+    parent = psutil.Process(os.getpid())
+    stop = threading.Event()
+
+    def loop():
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
+        # Persistent pid -> Process cache. psutil.cpu_percent() returns 0.0 on
+        # the FIRST call for a given Process object and only yields a real value
+        # on subsequent calls (it measures CPU between calls). Re-creating
+        # Process objects each tick would always return 0 — so we cache them.
+        proc_cache = {parent.pid: parent}
+        try: parent.cpu_percent(interval=None)
+        except Exception: pass
+        with open(out_path, 'w', newline='') as fh:
+            writer = csv.writer(fh)
+            writer.writerow(['t', 'pid', 'role', 'rss_mb', 'cpu_pct', 'num_threads'])
+            while not stop.is_set():
+                now = time.time()
+                # Refresh the descendant list, but reuse cached Process objects.
+                try:
+                    current_descendants = parent.children(recursive=True)
+                except psutil.Error:
+                    current_descendants = []
+                live_pids = {parent.pid}
+                for d in current_descendants:
+                    live_pids.add(d.pid)
+                    if d.pid not in proc_cache:
+                        proc_cache[d.pid] = d
+                        # Prime so the next sample returns a real value.
+                        try: d.cpu_percent(interval=None)
+                        except Exception: pass
+                # Drop entries for pids that no longer exist.
+                for stale_pid in list(proc_cache.keys()):
+                    if stale_pid not in live_pids:
+                        proc_cache.pop(stale_pid, None)
+                for pid, proc in list(proc_cache.items()):
+                    try:
+                        role = 'parent' if pid == parent.pid else 'worker'
+                        writer.writerow([
+                            f"{now:.1f}", pid, role,
+                            f"{proc.memory_info().rss / 1e6:.1f}",
+                            f"{proc.cpu_percent(interval=None):.1f}",
+                            proc.num_threads(),
+                        ])
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        proc_cache.pop(pid, None)
+                        continue
+                fh.flush()
+                stop.wait(interval)
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+    return stop, t
+
+
+def _summarize_resource_log(log_path):
+    """Read the resource log and print peak RSS, mean CPU% per worker PID."""
+    try:
+        df = pd.read_csv(log_path)
+    except Exception as e:
+        print(f"Could not read resource log {log_path}: {e}", file=sys.stderr)
+        return
+    if df.empty:
+        print(f"Resource log {log_path} is empty.")
+        return
+    workers = df[df['role'] == 'worker']
+    parent = df[df['role'] == 'parent']
+    print(f"\n--- Resource summary ({log_path}) ---")
+    if not parent.empty:
+        print(f"Parent peak RSS: {parent['rss_mb'].max():.1f} MB | mean CPU%: {parent['cpu_pct'].mean():.1f}")
+    if not workers.empty:
+        agg = workers.groupby('pid').agg(peak_rss_mb=('rss_mb', 'max'),
+                                          mean_cpu_pct=('cpu_pct', 'mean'),
+                                          max_threads=('num_threads', 'max'),
+                                          samples=('t', 'count'))
+        print(f"Workers ({len(agg)} processes):")
+        print(agg.to_string())
+        print(f"Total peak RSS across workers (sum of per-worker peaks): {agg['peak_rss_mb'].sum():.1f} MB")
+    else:
+        print("No worker rows recorded.")
+
+
 if __name__ == "__main__":
     # ADDED: Define default paths at the top level for consistency
     project_root = os.getcwd()
@@ -278,6 +401,18 @@ if __name__ == "__main__":
         help=f'Optional path to save aggregated experiment results to a CSV file. '
              f'Defaults to a timestamped file in: {default_log_dir}'
     )
+    parser.add_argument(
+        '--num_workers',
+        type=int,
+        default=1,
+        help='Number of parallel experiment-row worker processes. 1 = sequential (default).'
+    )
+    parser.add_argument(
+        '--resource_log',
+        type=str,
+        default=None,
+        help='Optional CSV path. If set, sample RSS/CPU%% of parent + workers every 2s and write here.'
+    )
     cli_args = parser.parse_args()
 
     default_config_dirs = {
@@ -308,25 +443,66 @@ if __name__ == "__main__":
 
     print(f"Found {len(experiments_df)} experiment configurations in batch file.")
 
+    # Build the flat task list: one entry per (exp_row, seed) pair.
+    tasks = []
+    for index, exp_row in experiments_df.iterrows():
+        start_seed = int(exp_row.get('start_seed', 0))
+        num_seeds = int(exp_row.get('num_seeds', 1))
+        for i in range(num_seeds):
+            tasks.append((exp_row.to_dict(), start_seed + i, default_config_dirs))
+
+    print(f"Dispatching {len(tasks)} experiment runs across {max(1, cli_args.num_workers)} worker(s)...")
+
+    monitor_stop, monitor_thread = (None, None)
+    if cli_args.resource_log:
+        monitor_stop, monitor_thread = _start_resource_monitor(cli_args.resource_log, interval=2.0)
+
     total_campaigns_start_time = time.time()
     all_results = []
 
-    for index, exp_row in experiments_df.iterrows():
-        print(f"\n\n--- Starting Experiment Campaign {index + 1}/{len(experiments_df)} ---")
-        print(f"Details: Env='{exp_row['env_name']}', Agent='{exp_row['agent_name']}'")
-
-        start_seed = int(exp_row.get('start_seed', 0))
-        num_seeds = int(exp_row.get('num_seeds', 1))
-
-        for i in range(num_seeds):
-            current_run_seed = start_seed + i
-            # No changes needed here, as the new data is just appended to the list
-            exp_result = run_experiment(exp_row.copy(), current_run_seed, default_config_dirs)
+    if cli_args.num_workers <= 1:
+        for payload in tasks:
+            exp_row_dict, current_run_seed, _ = payload
+            print(f"\n\n--- Run: Env='{exp_row_dict.get('env_name')}', Agent='{exp_row_dict.get('agent_name')}', Seed={current_run_seed} ---")
+            exp_result = _worker_run(payload)
             if exp_result:
                 all_results.append(exp_result)
+    else:
+        ctx = mp.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=cli_args.num_workers, mp_context=ctx) as pool:
+            futures = {pool.submit(_worker_run, p): p for p in tasks}
+            completed = 0
+            for fut in as_completed(futures):
+                payload = futures[fut]
+                exp_row_dict, current_run_seed, _ = payload
+                try:
+                    exp_result = fut.result()
+                    if exp_result:
+                        all_results.append(exp_result)
+                except Exception as e:
+                    print(f"Worker failed for Env='{exp_row_dict.get('env_name')}', "
+                          f"Agent='{exp_row_dict.get('agent_name')}', Seed={current_run_seed}: {e}",
+                          file=sys.stderr)
+                completed += 1
+                print(f"[{completed}/{len(tasks)}] finished: "
+                      f"Env='{exp_row_dict.get('env_name')}', "
+                      f"Agent='{exp_row_dict.get('agent_name')}', "
+                      f"Seed={current_run_seed}")
 
     total_campaigns_end_time = time.time()
+
+    if monitor_stop is not None:
+        monitor_stop.set()
+        if monitor_thread is not None:
+            monitor_thread.join(timeout=5.0)
+        _summarize_resource_log(cli_args.resource_log)
+
     print(f"\n--- All Experiment Campaigns Complete ({total_campaigns_end_time - total_campaigns_start_time:.2f}s) ---")
+    print(f"Workers: {cli_args.num_workers} | Runs: {len(tasks)} | Wall-clock: {total_campaigns_end_time - total_campaigns_start_time:.2f}s")
+
+    # Stable ordering of results so the CSV is deterministic w.r.t. inputs.
+    if all_results:
+        all_results.sort(key=lambda r: (str(r.get('env_name')), str(r.get('agent_name')), int(r.get('seed', 0))))
     if cli_args.results_output_csv and all_results:
         results_df = pd.DataFrame(all_results)
 

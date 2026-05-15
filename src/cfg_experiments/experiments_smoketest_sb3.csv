@@ -1,0 +1,3 @@
+env_name;agent_name;start_seed;num_seeds;load_policy_file;save_policy_file;render;verbose
+setting_1;stable_baselines_smoke;42;1;;;FALSE;FALSE
+setting_3;stable_baselines_smoke;42;1;;;FALSE;FALSE

@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\leona\\\\Meu Drive\\\\Post-Doctorate\\\\Projetos\\\\lot_sizing_perishable_code\\\\lot_sizing_perishable\\\\src\\\\cfg_env\" -Force -Recurse)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Format-Table -AutoSize)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\leona\\\\Meu Drive\\\\Post-Doctorate\\\\Projetos\\\\lot_sizing_perishable_code\\\\lot_sizing_perishable\" -Recurse -Directory | Select-Object -First 30 | ForEach-Object { $_.FullName })",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\leona\\\\Meu Drive\\\\Post-Doctorate\\\\Projetos\\\\lot_sizing_perishable_code\\\\lot_sizing_perishable\" -Recurse -File | Where-Object { $_.Extension -in @\\('.tex', '.py', '.md', '.txt'\\) } | Select-Object -ExpandProperty FullName)",
+      "PowerShell(Get-Content *)",
+      "Bash(python src/cfg_env/generate_new_settings.py)",
+      "Bash(python -c ' *)",
+      "Read(//c/c/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/src/cfg_experiments/**)",
+      "Read(//c/c/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/src/**)",
+      "Bash(python -c \"import os; print\\('CPU count:', os.cpu_count\\(\\)\\)\")",
+      "Bash(python -c \"import psutil; vm=psutil.virtual_memory\\(\\); print\\(f'Total RAM: {vm.total/1e9:.2f} GB, Available: {vm.available/1e9:.2f} GB, CPU logical: {psutil.cpu_count\\(\\)}, physical: {psutil.cpu_count\\(logical=False\\)}'\\)\")",
+      "Bash(pip install *)",
+      "Bash(python -c \"import psutil; vm=psutil.virtual_memory\\(\\); print\\(f'Total RAM: {vm.total/1e9:.2f} GB, Available: {vm.available/1e9:.2f} GB'\\); print\\(f'CPU logical: {psutil.cpu_count\\(logical=True\\)}, physical: {psutil.cpu_count\\(logical=False\\)}'\\)\")",
+      "Bash(mkdir -p ./smoke_logs)",
+      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_bspew.csv --num_workers 1 --resource_log ./smoke_logs/bspew_w1.csv --results_output_csv ./smoke_logs/bspew_w1_results.csv)",
+      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_bspew.csv --num_workers 2 --resource_log ./smoke_logs/bspew_w2.csv --results_output_csv ./smoke_logs/bspew_w2_results.csv)",
+      "Read(//c/c/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/smoke_logs/**)",
+      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_bspew.csv --num_workers 1 --resource_log ./smoke_logs/bspew_w1_v2.csv --results_output_csv ./smoke_logs/bspew_w1_v2_results.csv)",
+      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_bspew.csv --num_workers 2 --resource_log ./smoke_logs/bspew_w2_v2.csv --results_output_csv ./smoke_logs/bspew_w2_v2_results.csv)",
+      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_sb3.csv --num_workers 1 --resource_log ./smoke_logs/sb3_w1.csv --results_output_csv ./smoke_logs/sb3_w1_results.csv)",
+      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_sb3.csv --num_workers 2 --resource_log ./smoke_logs/sb3_w2.csv --results_output_csv ./smoke_logs/sb3_w2_results.csv)"
+    ]
+  }
+}

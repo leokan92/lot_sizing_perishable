@@ -117,6 +117,25 @@ The primary entry point for executing experiments is `main_runner.py`.
 
 4.  **Collect Results:** The script runs each experiment for the specified number of seeds, captures performance metrics (total reward, execution time), and saves a timestamped aggregated summary CSV to `src/results/simulation_logs/`. Detailed step-by-step logs can also be enabled via agent configuration.
 
+### Parallel execution
+
+`main_runner.py` can run experiment rows in parallel via process-level workers (each row stays single-threaded internally — we just run several rows at once). Pass `--num_workers N` and optionally `--resource_log <csv>` to record per-worker RSS / CPU%:
+
+```powershell
+# Run ALL methods (BSP, BSP-EW, COP, GA, NSGA-II, PSO, PPO, SAC, DQN) over ALL settings
+# defined in experiments_batch.csv, using 14 workers (leaves 2 physical cores free for the OS):
+python main_runner.py --batch_file ./src/cfg_experiments/experiments_batch.csv --num_workers 14 --resource_log ./results/full_results/full_resources.csv --results_output_csv ./results/full_results/full_results.csv
+
+# Run the sensitivity sweep (~650 rows of GA/NSGA-II/PSO hyperparameter variations):
+python main_runner.py --batch_file ./src/cfg_experiments/experiments_batch_sensitivity.csv --num_workers 14 --resource_log ./results/sen_results/sens_resources.csv --results_output_csv ./results/sen_results/sens_results.csv
+```
+
+**Choosing `--num_workers`:**
+*   Single-threaded NumPy agents (BSP, BSP-EW, COP, GA, NSGA-II, PSO): set workers to `physical_cores − 2` (e.g. 14 on a 16-core machine). Each worker uses ~1 core and ~260 MB RSS.
+*   SB3 agents with the default `vec_env_type: "dummy"`: each worker still uses ~1 core but ~360 MB-3 GB depending on `total_timesteps` and the algorithm (SAC/DQN replay buffers are heavier than PPO). Pick `--num_workers` based on free RAM ÷ per-worker RSS.
+*   If you switch SB3 to `vec_env_type: "subproc"`, each worker uses `n_envs` cores — divide `--num_workers` by `n_envs` accordingly.
+*   `--num_workers 1` keeps the original sequential behavior (useful for debugging or reproducing single-run logs).
+
 ---
 
 ## Installation
@@ -144,6 +163,7 @@ pip install -r requirements.txt
 | `numpy` | 2.4.0 | Numerical computing |
 | `pandas` | 2.3.3 | Data handling and CSV I/O |
 | `matplotlib` / `seaborn` | 3.10.8 / 0.13.2 | Plotting and visualization |
+| `psutil` | 6.1.0 | Per-worker RSS/CPU sampling for `--resource_log` |
 
 ---
 
