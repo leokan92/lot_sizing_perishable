@@ -22,7 +22,21 @@
       "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_bspew.csv --num_workers 1 --resource_log ./smoke_logs/bspew_w1_v2.csv --results_output_csv ./smoke_logs/bspew_w1_v2_results.csv)",
       "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_bspew.csv --num_workers 2 --resource_log ./smoke_logs/bspew_w2_v2.csv --results_output_csv ./smoke_logs/bspew_w2_v2_results.csv)",
       "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_sb3.csv --num_workers 1 --resource_log ./smoke_logs/sb3_w1.csv --results_output_csv ./smoke_logs/sb3_w1_results.csv)",
-      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_sb3.csv --num_workers 2 --resource_log ./smoke_logs/sb3_w2.csv --results_output_csv ./smoke_logs/sb3_w2_results.csv)"
+      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/experiments_smoketest_sb3.csv --num_workers 2 --resource_log ./smoke_logs/sb3_w2.csv --results_output_csv ./smoke_logs/sb3_w2_results.csv)",
+      "Bash(awk -F';' 'NR>1{print $1}' \"c:/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/src/cfg_experiments/experiments_batch_sensitivity.csv\")",
+      "Bash(awk -F',' 'NR>1{print $2}' \"c:/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/src/results/sen_results/sens_results.csv\")",
+      "Bash(grep -E 'instance_name|num_items|num_suppliers|num_periods|cv|p_full|description' 'c:/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/src/cfg_env/setting___TRACKED_VAR__.json')",
+      "Bash(python src/analysis/sensitivity_analyzer_multi.py)",
+      "Bash(grep -E \"^setting_[0-9]+\\\\.json$\")",
+      "Bash(sort -t_ -k2 -n)",
+      "Bash(awk 'NR>=833 && NR<=891' \"c:/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/tex_folder/main.tex\")",
+      "Bash(awk 'NR>=833 && NR<=895' \"c:/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/tex_folder/main.tex\")",
+      "Bash(grep -nE \"cfg_env|cfg\\\\\\\\\\\\\\\\_env|src/|repository|Sixteen of these|remaining \\\\\\\\\\\\$34\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('src/agents/PymooMetaHeuristicAgent.py'\\).read\\(\\)\\); print\\('AST parse OK'\\)\")",
+      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/ga_search_smoketest.csv --num_workers 1)",
+      "Bash(python main_runner.py --batch_file ./src/cfg_experiments/ga_nosearch_smoketest.csv --num_workers 1)",
+      "Bash(awk -F';' 'NR==1 || $2 ~ /^\\(ga|nsga2|pso|ega\\)/' \"c:/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/src/cfg_experiments/experiments_batch.csv\")",
+      "Bash(awk -F';' 'NR>1 {print $2}' \"c:/Users/leona/Meu Drive/Post-Doctorate/Projetos/lot_sizing_perishable_code/lot_sizing_perishable/src/cfg_experiments/experiments_batch.csv\")"
     ]
   }
 }

@@ -17,6 +17,16 @@
         "bspew_waste_estimation_method": "deterministic_simulation",
         "bspew_waste_horizon_review_periods": 1,
         "bspew_num_ew_demand_sim_paths": 30,
+        "hyperparameter_search": {
+            "enabled": true,
+            "strategy": "bracket_and_bisect",
+            "parameter": "pop_size",
+            "budget": 5,
+            "start_value": 75,
+            "growth_factor": 1.5,
+            "selection_metric": "final_eval_avg_reward",
+            "save_search_log": true
+        },
         "logger_settings": {
             "log_step_details": true,
             "log_dir": "./src/results/simulation_logs/",

@@ -1,0 +1,2 @@
+env_name;agent_name;start_seed;num_seeds;load_policy_file;save_policy_file;render;verbose
+setting_1;ga_nosearch_smoketest;42;1;;./src/results/policies/smoketest_ga_nosearch.json;FALSE;FALSE

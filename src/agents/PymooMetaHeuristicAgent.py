@@ -191,6 +191,7 @@ class PymooMetaHeuristicAgent:
                  load_policy_path: str = None,
                  save_policy_path: str = None,
                  logger_settings: dict = None,
+                 hyperparameter_search: dict = None,
                  **other_kwargs):
 
         self.env = env
@@ -225,6 +226,7 @@ class PymooMetaHeuristicAgent:
         self.best_chromosome = None
         self.load_policy_path = load_policy_path
         self.save_policy_path = save_policy_path
+        self.hp_search_config = hyperparameter_search or {}
         if self.load_policy_path:
             print(f"\n--- Loading Pre-optimized Meta-Heuristic Policy ---")
             try:
@@ -239,7 +241,10 @@ class PymooMetaHeuristicAgent:
                 self.best_chromosome = None
         if self.best_chromosome is None:
             self._reset_env_seed_sequence()
-            self._optimize_policy_pymoo()
+            if self.hp_search_config.get("enabled", False):
+                self._optimize_policy_with_search()
+            else:
+                self._optimize_policy_pymoo()
             if self.save_policy_path:
                 print(f"\n--- Saving Optimized Meta-Heuristic Policy ---")
                 try:
@@ -338,6 +343,158 @@ class PymooMetaHeuristicAgent:
             print("Pymoo Error: Optimization did not return a solution. Using a default.", file=sys.stderr)
             default_gene = (0, HEURISTIC_COP, 0.0)
             self.best_chromosome = [default_gene for _ in range(self.n_items)]
+
+    def _evaluate_chromosome_silent(self, chromosome, n_episodes: int) -> float:
+        """Score a candidate chromosome on `n_episodes` of the env without writing
+        anything to the SimulationLogger. Resets the env seed sequence first so
+        candidates are scored on identical episodes."""
+        if not chromosome or n_episodes <= 0:
+            return float("-inf")
+        self._reset_env_seed_sequence()
+        episode_rewards = []
+        for _ in range(n_episodes):
+            self.env.reset()
+            terminated, truncated = False, False
+            total_reward = 0.0
+            while not (terminated or truncated):
+                action = self._get_action_from_chromosome(chromosome)
+                _, reward, terminated, truncated, _ = self.env.step(action, verbose=False)
+                total_reward += reward
+            episode_rewards.append(total_reward)
+        return float(np.mean(episode_rewards))
+
+    def _optimize_policy_with_search(self):
+        """Run an adaptive bracket-and-bisect line search over `pop_size`.
+        Phase 1 expands pop_size geometrically while reward improves; phase 2
+        bisects the bracket (best, regression) with any remaining budget.
+        After the loop, `self.best_chromosome` is set to the winning candidate."""
+        cfg = self.hp_search_config
+        strategy = cfg.get("strategy", "bracket_and_bisect")
+        parameter = cfg.get("parameter", "pop_size")
+        budget = int(cfg.get("budget", 5))
+        start_value = int(cfg.get("start_value", 75))
+        growth_factor = float(cfg.get("growth_factor", 1.5))
+        selection_metric = cfg.get("selection_metric", "final_eval_avg_reward")
+        save_search_log = bool(cfg.get("save_search_log", True))
+
+        if strategy != "bracket_and_bisect":
+            raise ValueError(f"hyperparameter_search.strategy='{strategy}' not supported; use 'bracket_and_bisect'.")
+        if parameter != "pop_size":
+            raise ValueError(f"hyperparameter_search.parameter='{parameter}' not supported; only 'pop_size' is tunable.")
+        if selection_metric != "final_eval_avg_reward":
+            raise ValueError(f"hyperparameter_search.selection_metric='{selection_metric}' not supported.")
+        if budget < 1:
+            raise ValueError(f"hyperparameter_search.budget must be >= 1, got {budget}.")
+        if growth_factor <= 1.0:
+            raise ValueError(f"hyperparameter_search.growth_factor must be > 1.0, got {growth_factor}.")
+        if start_value < 2:
+            raise ValueError(f"hyperparameter_search.start_value must be >= 2, got {start_value}.")
+
+        algo_name = self.algorithm_config.get("name", "GA").upper()
+        original_pop_size = self.algorithm_config.get("params", {}).get("pop_size", None)
+        print(f"\n=== Hyperparameter search ({strategy} on {parameter}, {algo_name}) ===")
+        print(f"  budget={budget}, start_value={start_value}, growth_factor={growth_factor}")
+
+        def train_and_eval(p):
+            self.algorithm_config.setdefault("params", {})["pop_size"] = int(p)
+            t0 = time.time()
+            self._optimize_policy_pymoo()
+            train_time_s = time.time() - t0
+            candidate = json.loads(json.dumps(self.best_chromosome))
+            t0 = time.time()
+            avg_reward = self._evaluate_chromosome_silent(candidate, self.num_final_eval_episodes)
+            eval_time_s = time.time() - t0
+            print(f"  trial pop_size={p}: avg_reward={avg_reward:.2f} (train={train_time_s:.1f}s, eval={eval_time_s:.2f}s)")
+            return avg_reward, candidate, train_time_s, eval_time_s
+
+        trials = []
+        best_r = float("-inf")
+        best_p = None
+        best_chrom = None
+        bracket_low = None
+        bracket_high = None
+
+        # Phase 1: expand
+        p = int(start_value)
+        while len(trials) < budget:
+            r, chrom, ttime, etime = train_and_eval(p)
+            trials.append({
+                "phase": "expand",
+                "trial_idx": len(trials) + 1,
+                "pop_size": int(p),
+                "avg_reward": r,
+                "train_time_s": ttime,
+                "eval_time_s": etime,
+            })
+            if r > best_r:
+                best_r, best_p, best_chrom = r, int(p), chrom
+                if len(trials) == budget:
+                    break
+                p = int(round(p * growth_factor))
+                if p <= best_p:
+                    p = best_p + 1
+                continue
+            bracket_low, bracket_high = best_p, int(p)
+            break
+
+        # Phase 2: bisect
+        if bracket_low is not None and bracket_high is not None:
+            while len(trials) < budget:
+                p_mid = int(round((bracket_low + bracket_high) / 2))
+                if p_mid == bracket_low or p_mid == bracket_high:
+                    print(f"  bisect stopped: no integer strictly between {bracket_low} and {bracket_high}.")
+                    break
+                if any(t["pop_size"] == p_mid for t in trials):
+                    print(f"  bisect stopped: pop_size={p_mid} already tested.")
+                    break
+                r_mid, chrom_mid, ttime, etime = train_and_eval(p_mid)
+                trials.append({
+                    "phase": "bisect",
+                    "trial_idx": len(trials) + 1,
+                    "pop_size": p_mid,
+                    "avg_reward": r_mid,
+                    "train_time_s": ttime,
+                    "eval_time_s": etime,
+                })
+                if r_mid > best_r:
+                    best_r, best_p, best_chrom = r_mid, p_mid, chrom_mid
+                    bracket_low = p_mid
+                else:
+                    bracket_high = p_mid
+
+        if best_chrom is None:
+            print("Hyperparameter search produced no valid candidate; falling back to original pop_size.", file=sys.stderr)
+            if original_pop_size is not None:
+                self.algorithm_config["params"]["pop_size"] = original_pop_size
+            self._optimize_policy_pymoo()
+            return
+
+        self.best_chromosome = best_chrom
+        self.algorithm_config.setdefault("params", {})["pop_size"] = int(best_p)
+        print(f"\n=== Hyperparameter search winner: pop_size={best_p}, avg_reward={best_r:.2f} "
+              f"({len(trials)}/{budget} trials used) ===")
+
+        if save_search_log and self.save_policy_path:
+            log_path = os.path.splitext(self.save_policy_path)[0] + "_search.json"
+            log_payload = {
+                "strategy": strategy,
+                "parameter": parameter,
+                "budget": budget,
+                "start_value": start_value,
+                "growth_factor": growth_factor,
+                "selection_metric": selection_metric,
+                "num_final_eval_episodes": self.num_final_eval_episodes,
+                "algorithm_name": algo_name,
+                "trials": trials,
+                "winner": {"pop_size": int(best_p), "avg_reward": best_r},
+            }
+            try:
+                os.makedirs(os.path.dirname(log_path), exist_ok=True)
+                with open(log_path, "w") as f:
+                    json.dump(log_payload, f, indent=4)
+                print(f"Search log saved to: {log_path}")
+            except Exception as e:
+                print(f"Error saving search log to '{log_path}': {e}", file=sys.stderr)
 
     def _get_action_from_chromosome(self, chromosome):
         action_matrix = np.zeros((self.n_items, self.n_suppliers), dtype=np.float32)

@@ -130,6 +130,8 @@ python main_runner.py --batch_file ./src/cfg_experiments/experiments_batch.csv -
 python main_runner.py --batch_file ./src/cfg_experiments/experiments_batch_sensitivity.csv --num_workers 14 --resource_log ./results/sen_results/sens_resources.csv --results_output_csv ./results/sen_results/sens_results.csv
 ```
 
+**Population-based methods now perform a built-in `pop_size` search.** The default `ga_config.json`, `nsga2_config.json`, and `pso_config.json` enable a 5-trial bracket-and-bisect line search over `pop_size` (start values 75/75/50, growth factor 1.5). Each GA / EGA / PSO row therefore runs up to **5 pymoo optimizations** and re-evaluates each resulting policy on `num_final_eval_episodes` to pick the winner. Expect those rows to take ~5× longer than the single-shot pymoo runs reported in earlier versions of the code. The full search trace (every trial's `pop_size`, `avg_reward`, and timings) is written next to the saved policy as `<policy>_search.json`. To revert to single-shot behaviour for a faster run, set `params.hyperparameter_search.enabled: false` in the agent config; the sensitivity-sweep configs (`*_sens_*`) already opt out so the sweep itself is unaffected.
+
 **Choosing `--num_workers`:**
 *   Single-threaded NumPy agents (BSP, BSP-EW, COP, GA, NSGA-II, PSO): set workers to `physical_cores − 2` (e.g. 14 on a 16-core machine). Each worker uses ~1 core and ~260 MB RSS.
 *   SB3 agents with the default `vec_env_type: "dummy"`: each worker still uses ~1 core but ~360 MB-3 GB depending on `total_timesteps` and the algorithm (SAC/DQN replay buffers are heavier than PPO). Pick `--num_workers` based on free RAM ÷ per-worker RSS.
