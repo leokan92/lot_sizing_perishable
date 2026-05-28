@@ -3,7 +3,7 @@
     "params": {
         "algorithm": "PPO",
         "policy": "MlpPolicy",
-        "total_timesteps": 200000,
+        "total_timesteps": 2000000,
         "num_final_eval_episodes": 50,
         "deterministic_eval": true,
         "train_log_interval": 10,
