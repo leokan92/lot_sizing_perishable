@@ -1,0 +1,332 @@
+--- main_prerev2_backup.tex	2026-08-20 20:16:47.373267200 -0300
++++ main.tex	2026-08-20 23:13:42.996678200 -0300
+@@ -294,7 +294,7 @@
+ Following arrivals, stochastic customer demand for each item materializes, drawn from a pre-defined instance.
+ Demand is satisfied from the available inventory according to the First-In-First-Out (FIFO) principle, meaning that older items are used before newer ones. 
+ {Another demand model is proposed in \cite{Chen2021}, which addresses the complexity of age-differentiated demand by modeling multiple customer classes, each with distinct minimum freshness requirements, and shows that optimal fulfillment under retailer control relies on prioritized FIFO issuance.
+-While consumer behavior can sometimes drive LIFO consumption (e.g., customers selecting the freshest items from the back of the shelf), we assume retailers actively mitigate this through operational practices, such as deliberate stock rotation, front-facing, or limiting the shelf to a single batch utilizing secondary backroom storage \cite{Senyuva2026}, to enforce FIFO and minimize expiration waste.}
++While consumer behavior can sometimes drive Last-In-First-Out (LIFO) consumption (e.g., customers selecting the freshest items from the back of the shelf), we assume retailers actively mitigate this through operational practices, such as deliberate stock rotation, front-facing, or limiting the shelf to a single batch utilizing secondary backroom storage \cite{Senyuva2026}, to enforce FIFO and minimize expiration waste.}
+ 
+ If demand for an item exceeds its available stock, the shortfall is recorded as lost sales, incurring a penalty cost.
+ The value of items sold is deducted from the corresponding age cohorts.
+@@ -351,7 +351,7 @@
+ \begin{itemize}
+     \item $L_{i,s}$: deterministic lead time for item $i$ from supplier $s$.
+     \item $\tilde{d}_{i,t}$: random variable representing demand for item $i$ during period $t$. Let $F_{i,t}$ be its distribution.
+-    \item $p_{full,i,s}$: probability of full order fulfillment for item $i$ from supplier $s$.
++    \item $p^{full}_{i,s}$: probability of full order fulfillment for item $i$ from supplier $s$.
+     \item $\alpha_{i,s}, \beta_{i,s}$: parameters for the Beta distribution governing partial order fulfillment for item $i$ from supplier $s$.
+     \item $c_{i,s}$: unit purchase cost of item $i$ from supplier $s$.
+     \item $f_{s}$: fixed ordering cost for placing an order with supplier $s$.
+@@ -369,18 +369,22 @@
+ {
+ \begin{itemize}
+     \item $x_{i,s,t}$: quantity of item $i$ ordered from supplier $s$ in period $t$. For $t \in \{-SL_{\max_{i}},\dots,0\}$, these represent orders placed before the planning horizon to fill the supply pipeline, and they are fixed quantities, not decision variables.
+-    \item $y_{s}$: binary variable that indicates whether or not an order is placed with the supplier.
++    \item $y_{s,t}$: binary setup variable equal to $1$ if at least one order is placed with supplier $s$ in period $t$, and $0$ otherwise. It is the variable that triggers the fixed ordering cost $f_s$, which is therefore charged once for every supplier and every period in which that supplier is actually used, irrespective of how many distinct items are included in the order.
+ \end{itemize}
+ }
+ 
++The setup variable $y_{s,t}$ should not be confused with the supplier-assignment decision that the solution methods of Section~\ref{sec:methodology} operate on. The latter fixes, once for the entire horizon, which supplier $s_i \in \mathcal{S}_i$ is used to source item $i$ (see Sections~\ref{subsec:baseline_policies} and \ref{subsec:hybridpol}), and reflects the fact that supplier selection is a long-term strategic commitment. In contrast, $y_{s,t}$ is a purely operational variable that records, period by period, whether the assigned supplier is activated. A supplier that is selected but not ordered from in period $t$ has $y_{s,t} = 0$ and incurs no fixed cost in that period. This is exactly the behavior of the simulation implementation used in the computational study, in which the fixed cost of a supplier is added to the cost of a period only when the realized order quantity from that supplier is strictly positive, and is added at most once per period regardless of the number of items sourced from it.
++
+ With the following state and auxiliary variables (within the period $t$):
+ \begin{itemize}
+     \item $\mathbf{I}_{i,t}$: inventory {$SL_{\max_{i}}$-dimensional} vector for item $i$, $\mathbf{I}_{i,t}${, where its $sl$-th component, namely $I_{i,sl,t}$, is the quantity with remaining shelf life $sl$}  at the \textit{start} of period $t$, \textit{before} arrivals.
+-    \item $\widetilde{X}_{arr,i,t}$: total quantity of item $i$ arriving at the \textit{start} of period $t$.
++    \item $\widetilde{X}^{arr}_{i,t}$: total quantity of item $i$ arriving at the \textit{start} of period $t$.
+     \item $\widetilde{W}_{i,sl,t}$: random variable representing the premature spoilage quantity of item $i$ with remaining shelf life $sl$ at the end of period $t$, drawn from a Binomial distribution.
+     \item $\mathbf{I}_{i,t}^{\text{(after-arrival)}}$:  inventory {$SL_{\max_{i}}$-dimensional vector for item $i$, where its $sl$-th component, namely $I_{i,sl,t}^{\text{(after-arrival)}}$, is the quantity with remaining shelf life $sl$  at the \textit{start} of period $t$, \textit{after} arrivals.}%inventory vector for item $i$ \textit{after} arrivals at the start of period $t$.
+     \item $\mathbf{I}_{i,t}^{\text{(after-sales)}}$: inventory {$SL_{\max_{i}}$-dimensional vector for item $i$, where its $sl$-th component, namely $I_{i,sl,t}^{\text{(after-sales)}}$, is the quantity with remaining shelf life $sl$, \textit{after-sales} fulfillment in period $t$.} % \textit{after-sales} fulfillment in period $t$.
+     \item $w_{i,t}$: total quantity of item $i$ wasted (expired) at the end of period $t$.
++    \item $\mathbf{D}^R_{i,t}$: realized per-cohort sales {$SL_{\max_{i}}$-dimensional} vector for item $i$ in period $t$, where its $sl$-th component, namely $D^R_{i,sl,t}$, is the quantity sold from the cohort with remaining shelf life $sl$.
++    \item $z_{i,t}$: lost sales of item $i$ in period $t$, that is, the part of the realized demand $d_{i,t}$ that cannot be met from the inventory available after arrivals. It is the quantity penalized at the unit rate $p_i$ in the objective function.
+ \end{itemize}
+ 
+ subject to the following constraints:
+@@ -389,7 +393,7 @@
+ x_{i,s,t} \ge 0, \quad  \forall i \in \mathcal{I},\, \forall s \in \mathcal{S}_i, \forall t \in \mathcal{T}.
+ \]
+ \[
+-\quad y_{s} \in \{0,1\} \quad \forall s \in \mathcal{S}.
++\quad y_{s,t} \in \{0,1\} \quad \forall s \in \mathcal{S},\; \forall t \in \mathcal{T}.
+ \]
+ \[
+  \qquad  \mathbf{I}_{i,t} \ge \mathbf{0}, \quad z_{i,t} \ge 0, \quad w_{i,t} \ge 0, \quad \forall i \in \mathcal{I},\; \forall t \in \mathcal{T}.
+@@ -400,34 +404,35 @@
+ 
+ \textbf{Start of Period $t$}
+ \begin{enumerate}
+-    \item \textbf{Receive Arrivals:} For each item $i \in \mathcal{I}$ and supplier $s \in \mathcal{S}_i$ with an order due to arrive (placed at {period} $t-L_{i,s}${, where  $t\geq L_{i,s}$}), the quantity ordered was $x_{i,s,t-L_{i,s}}$. The actual quantity received, $\tilde{x}_{arr,i,s,t}$, is a random variable that may differ from the ordered quantity.
++    \item \textbf{Receive Arrivals:} For each item $i \in \mathcal{I}$ and supplier $s \in \mathcal{S}_i$ with an order due to arrive (placed at {period} $t-L_{i,s}${, where  $t\geq L_{i,s}$}), the quantity ordered was $x_{i,s,t-L_{i,s}}$. The actual quantity received, $\tilde{x}^{arr}_{i,s,t}$, is a random variable that may differ from the ordered quantity.
+     \[
+-    \tilde{x}_{arr,i,s,t} = 
++    \tilde{x}^{arr}_{i,s,t} = 
+     \begin{cases}
+-       {x_{i,s,t-L_{i,s}}} & \text{with probability } p_{full,i,s} \quad \text{(full fulfillment),} \\[4pt]
+-        \lfloor  {x_{i,s,t-L_{i,s}}} \cdot \tilde{b}_{i,s,t} \rfloor & \text{with probability } 1-p_{full,i,s} \quad \text{(partial fulfillment),}
++       {x_{i,s,t-L_{i,s}}} & \text{with probability } p^{full}_{i,s} \quad \text{(full fulfillment),} \\[4pt]
++        \lfloor  {x_{i,s,t-L_{i,s}}} \cdot \tilde{b}_{i,s,t} \rfloor & \text{with probability } 1-p^{full}_{i,s} \quad \text{(partial fulfillment),}
+     \end{cases}
+     \]
+     where $\tilde{b}_{i,s,t} \sim \text{Beta}(\alpha_{i,s}, \beta_{i,s})$.
+     The total quantity of item $i$ arriving at the start of period $t$ is:
+     \[
+-    \widetilde{X}_{arr,i,t} = \sum_{\substack{s \in \mathcal{S}_i \\ t - L_{i,s} \,\ge\, -SL_{\max_{i}}}} \tilde{x}_{arr,i,s,t} \quad \forall i \in \mathcal{I},\ \forall t \in \mathcal{T}.
++    \widetilde{X}^{arr}_{i,t} = \sum_{s \in \mathcal{S}_i} \tilde{x}^{arr}_{i,s,t} \quad \forall i \in \mathcal{I},\ \forall t \in \mathcal{T} \ \text{such that} \ t \ge \max_{s \in \mathcal{S}_i} L_{i,s} - SL_{\max_{i}}.
+     \]
++    The lower bound stated for $t$ guarantees that every order referenced in the summation has effectively been placed, either inside the planning horizon or as one of the pipeline orders of periods $\{-SL_{\max_{i}},\dots,0\}$. For any earlier period no order is outstanding and $\widetilde{X}^{arr}_{i,t} = 0$.
+ 
+     \item \textbf{Inventory After Arrivals:} Arriving items enter inventory with maximum remaining shelf life. The post-arrival inventory for each cohort is:
+     \[
+     I_{i,sl,t}^{\text{(after-arrival)}} = 
+     \begin{cases}
+-        I_{i,sl,t} + \widetilde{X}_{arr,i,t} & \text{if } sl = SL_{\max_{i}} \quad \text{(fresh arrivals),} \\[4pt]
++        I_{i,sl,t} + \widetilde{X}^{arr}_{i,t} & \text{if } sl = SL_{\max_{i}} \quad \text{(fresh arrivals),} \\[4pt]
+         I_{i,sl,t} & \text{otherwise}
+     \end{cases}
+     \quad \forall i \in \mathcal{I}.
+     \]
+     \item \textbf{Place New Orders:} The decision variable $x_{i,s,t}$, linked by:
+     \[
+-    x_{i,s,t} \le M \cdot y_{s} \quad \forall i \in \mathcal{I}, s \in \mathcal{S}_i, t \in \mathcal{T}.
++    x_{i,s,t} \le M \cdot y_{s,t} \quad \forall i \in \mathcal{I}, s \in \mathcal{S}_i, t \in \mathcal{T}.
+     \]
+-    where $M$ is the upper bound on the items ordered.
++    where $M$ is the upper bound on the items ordered. Because this linking constraint is imposed for every period, a positive order in period $t$ forces $y_{s,t} = 1$, whereas in the periods in which supplier $s$ receives no order the cost minimization drives $y_{s,t}$ to $0$. The fixed cost $f_s$ is thus incurred only in the periods in which supplier $s$ is effectively used.
+ \end{enumerate}
+ 
+ \textbf{During Period $t$}
+@@ -473,17 +478,19 @@
+     I_{i,sl+1,t}^{\text{(after-sales)}} - \widetilde{W}_{i,sl+1,t} & \text{for } sl \in \{1, \dots, SL_{\max_{i}}-1\} \\
+     0 & \text{for } sl = SL_{\max_{i}}
+     \end{cases}
+-    \quad \forall i \in \mathcal{I}, \forall t \in \mathcal{T}{, \{T\}}.
++    \quad \forall i \in \mathcal{I}, \forall t \in \mathcal{T} \setminus \{T\}.
+     \]
+     
+     The objective is to minimize the total expected costs over the planning horizon:
+     {
+     \begin{equation}\label{eq:of} 
+-    \min \quad \mathbb{E} \left[ \sum_{t=1}^{T} \left( \sum_{s \in \mathcal{S}} f_{s} y_{s} + \sum_{i \in \mathcal{I}} \left( \sum_{s \in \mathcal{S}_i} c_{i,s} x_{i,s,t} + h_i I_{i,t}^{\text{(after-sales)}} + p_i z_{i,t} + b_i w_{i,t} \right) \right) \right].   
++    \min \quad \mathbb{E} \left[ \sum_{t=1}^{T} \left( \sum_{s \in \mathcal{S}} f_{s} y_{s,t} + \sum_{i \in \mathcal{I}} \left( \sum_{s \in \mathcal{S}_i} c_{i,s} x_{i,s,t} + h_i I_{i,t}^{\text{(after-sales)}} + p_i z_{i,t} + b_i w_{i,t} \right) \right) \right].   
+     \end{equation}
+     }
+     
+     
++    Equation~\eqref{eq:of} defines the \emph{cost} of a policy, which is a sum of non-negative components and is therefore itself non-negative. The discrete-event simulator, however, exposes the standard reinforcement learning interface and returns at each period the \emph{reward} $R_t = -C_t$, where $C_t$ is the period cost appearing inside the expectation of Equation~\eqref{eq:of}. The total reward of an episode is thus $R = -\sum_{t=1}^{T} C_t \le 0$, and maximizing the expected total reward is equivalent to minimizing the expected total cost of Equation~\eqref{eq:of}. All methods compared in Section~\ref{sec:experiments} are driven by this common reward interface, which is why the per-instance objective values collected from the simulation logs are negative. To avoid any ambiguity, we report objective \emph{levels} as total rewards, we label them as such in Table~\ref{tab:summary_metrics_compact}, and we report all \emph{relative} quantities (cost reductions in Table~\ref{tab:summary_metrics_compact} and relative improvements in Table~\ref{tab:sensitivity_summary}) as percentages defined so that a positive value always denotes a better, i.e., cheaper, policy.
++
+     The initial conditions are:
+     {
+     \[x_{i,s,t} \text{ is given} \quad \forall i \in \mathcal{I},\; s \in \mathcal{S}_i,\; t \in \{-SL_{\max_{i}},\dots,0\}.
+@@ -603,7 +610,7 @@
+ As depicted in Algorithm~\ref{alg:hyper-heuristic_main}, the goal is to find a policy that minimizes the total expected system-wide cost. 
+ The cost at any given time step $t$, denoted $C_t$, is composed of fixed and variable ordering costs, holding costs, stockout penalties, and waste costs:
+ \[
+-C_t = \sum_{s \in \mathcal{S}} f_{s} y_{s} + \sum_{i \in \mathcal{I}} \left( \sum_{s \in \mathcal{S}_i} c_{i,s} x_{i,s,t} + h_i I_{i,t}^{\text{(after-sales)}} + p_i z_{i,t} + b_i w_{i,t} \right)
++C_t = \sum_{s \in \mathcal{S}} f_{s} y_{s,t} + \sum_{i \in \mathcal{I}} \left( \sum_{s \in \mathcal{S}_i} c_{i,s} x_{i,s,t} + h_i I_{i,t}^{\text{(after-sales)}} + p_i z_{i,t} + b_i w_{i,t} \right)
+ \]
+ The formal objective is to find a policy that minimizes the expectation of the sum of these costs over the time horizon $T$:
+ \[
+@@ -623,7 +630,7 @@
+ \Procedure{HyperHeuristicOptimization}{$N_{pop}, G_{max}, N_{eval}$}
+     \LineComment{$N_{pop}$: Population size, $G_{max}$: Max generations, $N_{eval}$: Evaluation episodes}
+     \State $P_0 \gets \{\text{RandomlyInitializePolicy}()\}_{k=1}^{N_{pop}}$ \Comment{Initialize population of policies}
+-    \State $\Psi^* \gets \text{arg\,max}_{\Psi \in P_0} \Call{EvaluateFitness}{\Psi, N_{eval}}$ \Comment{Find initial best}
++    \State $\Psi^* \gets \text{arg\,min}_{\Psi \in P_0} \Call{EvaluateFitness}{\Psi, N_{eval}}$ \Comment{Find initial best}
+     \State $f_{\text{SAA}}^* \gets \Call{EvaluateFitness}{\Psi^*, N_{eval}}$
+ 
+     \For{$g \in \{1, \dots, G_{max}\}$}
+@@ -631,7 +638,7 @@
+         \For{each $\Psi \in P_{g-1}$}
+             \State $f_{\text{SAA}} \gets \Call{EvaluateFitness}{\Psi, N_{eval}}$
+             \State $F_g \gets F_g \cup \{f_{\text{SAA}}\}$
+-            \If{$f_{\text{SAA}} > f_{\text{SAA}}^*$}
++            \If{$f_{\text{SAA}} < f_{\text{SAA}}^*$}
+                 \State $\Psi^* \gets \Psi$ \Comment{Update global best policy}
+                 \State $f_{\text{SAA}}^* \gets f_{\text{SAA}}$
+             \EndIf
+@@ -711,7 +718,7 @@
+ \begin{longtable}{@{}p{3.9cm}cccccccll@{}}
+ 
+ % --- CAPTION AND LABEL ---
+-\caption{Configuration of the fifty experimental problem instances. $N$ items, $S$ suppliers, $T$ periods. Demand $cv$ summarizes the median item-level coefficient of variation $\sigma/\mu$ (Low $\approx 0.2$, Med $\approx 0.4$, Med-Hi $\approx 0.6$, High $\approx 0.8$). Supplier reliability is the minimum non-zero per-item probability of full fulfillment $p_{full}$ (High $\geq 0.95$, Med $\approx 0.90$, Low $\approx 0.85$). LT is the range of supplier lead times (in periods) across active item--supplier pairs. SL is the effective shelf life (in periods). The Seasonality column records the demand shape, and the Special column flags non-default cost or demand parameters.}
++\caption{Configuration of the fifty experimental problem instances. $N$ items, $S$ suppliers, $T$ periods. Demand $cv$ summarizes the median item-level coefficient of variation $\sigma/\mu$ (Low $\approx 0.2$, Med $\approx 0.4$, Med-Hi $\approx 0.6$, High $\approx 0.8$). Supplier reliability is the minimum non-zero per-item probability of full fulfillment $p^{full}$ (High $\geq 0.95$, Med $\approx 0.90$, Low $\approx 0.85$). LT is the range of supplier lead times (in periods) across active item--supplier pairs. SL is the effective shelf life (in periods). The Seasonality column records the demand shape, and the Special column flags non-default cost or demand parameters.}
+ \label{tab:instances} \\
+ 
+ % --- HEADER FOR THE FIRST PAGE ---
+@@ -836,7 +843,105 @@
+ 
+ The only hyperparameter we tune per instance is the population size $N_{pop}$. The sensitivity analysis of Section \ref{subsec:sensitivity} showed that $N_{pop}$ is the single hyperparameter with a clear, monotone, scale-dependent effect; the others (generations, crossover rate, mutation rate, evaluation budget) lie on a flat region. Accordingly, for every instance, we select $N_{pop}$ by an adaptive bracket-and-bisect line search with a total budget of five candidate values per algorithm.
+ 
+-Let $\bar{R}(N_{pop})$ denote the average reward of the policy returned by the algorithm when run with population size $N_{pop}$. The search starts from $N_{pop,0} = 75$ for GA and EGA and $N_{pop,0} = 50$ for PSO, and proceeds in two phases. In the expansion phase, the next candidate is generated geometrically as $N_{pop,k+1} = \lceil \gamma\,N_{pop,k} \rceil$ with growth factor $\gamma = 1.5$, and the expansion continues as long as $\bar{R}(N_{pop,k+1}) > \bar{R}(N_{pop,k})$. The first regression, $\bar{R}(N_{pop,k+1}) \leq \bar{R}(N_{pop,k})$, brackets the optimum between the current best $N_{pop}^{\star}$ and the regressing value $N_{pop}^{-}$; the remaining budget is then spent in a bisection phase that evaluates the midpoint $\lceil (N_{pop}^{\star}+N_{pop}^{-})/2 \rceil$ and updates the bracket toward whichever side improves $\bar{R}$. The procedure terminates either when the integer bracket can no longer be refined or when the five-evaluation budget is exhausted, and the policy with the highest $\bar{R}$ across the visited values is reported. The full hyperparameter configurations used in the experiments, including the discrete option sets for the hybrid policy components, are reported in Table~S1 of the supplementary material.
++Let $\bar{R}(N_{pop})$ denote the average total reward (that is, minus the average total cost of Equation~\eqref{eq:of}, so that larger values correspond to cheaper policies) of the policy returned by the algorithm when run with population size $N_{pop}$. The search starts from $N_{pop,0} = 75$ for GA and EGA and $N_{pop,0} = 50$ for PSO, and proceeds in two phases. In the expansion phase, the next candidate is generated geometrically as $N_{pop,k+1} = \lceil \gamma\,N_{pop,k} \rceil$ with growth factor $\gamma = 1.5$, and the expansion continues as long as $\bar{R}(N_{pop,k+1}) > \bar{R}(N_{pop,k})$. The first regression, $\bar{R}(N_{pop,k+1}) \leq \bar{R}(N_{pop,k})$, brackets the optimum between the current best $N_{pop}^{\star}$ and the regressing value $N_{pop}^{-}$; the remaining budget is then spent in a bisection phase that evaluates the midpoint $\lceil (N_{pop}^{\star}+N_{pop}^{-})/2 \rceil$ and updates the bracket toward whichever side improves $\bar{R}$. The procedure terminates either when the integer bracket can no longer be refined or when the five-evaluation budget is exhausted, and the policy with the highest $\bar{R}$ across the visited values is reported. The full hyperparameter configurations used in the experiments, including the discrete option sets for the hybrid policy components, are reported in Table~S1 of the supplementary material.
++
++Because $N_{pop}$ is selected instance by instance, no single population size characterizes the main experiments. The values $N_{pop} = 100$ for GA/EGA and $N_{pop} = 50$ for PSO that appear in our configuration files are nominal defaults: they are the population sizes that would be used if the adaptive search were disabled, and they are overridden by the search in every experiment reported in this paper. The population sizes effectively selected by the search are listed in Table~\ref{tab:popsize_selected}. They range from $75$ to $378$ for GA and EGA (median $112$ for both) and from $50$ to $252$ for PSO (median $75$), and they tend to grow with the scale of the instance, which is consistent with the scale-dependent effect of $N_{pop}$ identified in the sensitivity analysis of Section~\ref{subsec:sensitivity}. In particular, the selected value exceeds the nominal default in $29$ of the $50$ instances for GA, in $36$ for EGA, and in $39$ for PSO, which confirms that a single fixed population size would have been a poor choice for this benchmark.
++
++
++\small
++\begin{longtable}{@{}lccc@{}}
++\caption{Population size $N_{pop}$ actually selected by the adaptive bracket-and-bisect line search, per instance and per algorithm. The search starts from $N_{pop,0} = 75$ for GA/EGA and $N_{pop,0} = 50$ for PSO, uses a growth factor $\gamma = 1.5$, and is given a budget of five candidate values per algorithm and instance. The reported value is the one attaining the highest average total reward over the visited candidates, and it is the value used to produce the results of Section~\ref{sec:experiments}.}
++\label{tab:popsize_selected} \\
++\toprule
++\textbf{Instance} & \textbf{GA} & \textbf{EGA} & \textbf{PSO} \\
++\midrule
++\endfirsthead
++\multicolumn{4}{c}{\tablename\ \thetable{} -- \textit{Continued from previous page}} \\
++\toprule
++\textbf{Instance} & \textbf{GA} & \textbf{EGA} & \textbf{PSO} \\
++\midrule
++\endhead
++\midrule
++\multicolumn{4}{r}{\textit{Continued on next page}} \\
++\endfoot
++\bottomrule
++\endlastfoot
++\multicolumn{4}{l}{\textit{\textbf{Group 1: Small-Scale Base (4 items, 2 suppliers, 30 periods)}}} \\
++\addlinespace
++\texttt{I-4-2-30-Flat} & 84 & 168 & 59 \\
++\texttt{I-4-2-30-L} & 94 & 112 & 50 \\
++\texttt{I-4-2-30-H-Demand} & 75 & 112 & 75 \\
++\texttt{I-4-2-30-H-Supply} & 112 & 140 & 252 \\
++\texttt{I-4-2-30-H-Combined} & 75 & 112 & 75 \\
++\texttt{I-4-2-30-M-Demand} & 154 & 168 & 75 \\
++\texttt{I-4-2-30-MH-Demand} & 94 & 112 & 62 \\
++\texttt{I-4-2-30-M-Supply} & 112 & 168 & 252 \\
++\midrule
++\multicolumn{4}{l}{\textit{\textbf{Group 2: Small-Scale Variants (4 items, 2 suppliers, 30 periods)}}} \\
++\addlinespace
++\texttt{I-4-2-30-L-LongLT} & 112 & 112 & 50 \\
++\texttt{I-4-2-30-L-LT1} & 112 & 112 & 62 \\
++\texttt{I-4-2-30-L-LT5} & 168 & 75 & 50 \\
++\texttt{I-4-2-30-L-LT7} & 112 & 75 & 75 \\
++\texttt{I-4-2-30-L-MildSeas} & 168 & 75 & 50 \\
++\texttt{I-4-2-30-L-RndSeas-A} & 252 & 252 & 50 \\
++\texttt{I-4-2-30-L-RndSeas-B} & 112 & 94 & 50 \\
++\texttt{I-4-2-30-L-Bimodal} & 378 & 140 & 53 \\
++\texttt{I-4-2-30-L-Trend} & 103 & 112 & 112 \\
++\texttt{I-4-2-30-L-StrongSeas} & 112 & 75 & 84 \\
++\texttt{I-4-2-30-L-SL2} & 75 & 75 & 50 \\
++\texttt{I-4-2-30-L-SL3} & 210 & 168 & 112 \\
++\texttt{I-4-2-30-L-SL5} & 94 & 94 & 62 \\
++\texttt{I-4-2-30-L-SL6} & 112 & 154 & 59 \\
++\texttt{I-4-2-30-L-HighHold} & 378 & 140 & 50 \\
++\texttt{I-4-2-30-L-HighShort} & 75 & 112 & 56 \\
++\texttt{I-4-2-30-L-HighFixed} & 84 & 75 & 75 \\
++\texttt{I-4-2-30-L-LowDem} & 75 & 75 & 62 \\
++\texttt{I-4-2-30-L-HighDem} & 80 & 252 & 112 \\
++\midrule
++\multicolumn{4}{l}{\textit{\textbf{Group 3: Small-Scale Long Horizon (4 items, 2 suppliers, 60--90 periods)}}} \\
++\addlinespace
++\texttt{I-4-2-60-L} & 168 & 112 & 72 \\
++\texttt{I-4-2-90-L} & 112 & 75 & 68 \\
++\texttt{I-4-2-90-H-Combined} & 112 & 140 & 50 \\
++\midrule
++\multicolumn{4}{l}{\textit{\textbf{Group 4: Medium-Scale (6--8 items, 3 suppliers)}}} \\
++\addlinespace
++\texttt{I-6-3-30-L} & 75 & 75 & 56 \\
++\texttt{I-6-3-30-H-Combined} & 84 & 112 & 75 \\
++\texttt{I-6-3-45-L-MildSeas} & 94 & 112 & 94 \\
++\texttt{I-8-3-30-L} & 112 & 94 & 50 \\
++\texttt{I-8-3-30-H-Demand} & 126 & 378 & 168 \\
++\texttt{I-8-3-45-L-LongLT} & 252 & 252 & 112 \\
++\midrule
++\multicolumn{4}{l}{\textit{\textbf{Group 5: Large-Scale (10 items, 4 suppliers, 30 periods)}}} \\
++\addlinespace
++\texttt{I-10-4-30-L} & 75 & 112 & 84 \\
++\texttt{I-10-4-30-H-Demand} & 94 & 140 & 168 \\
++\texttt{I-10-4-30-H-Supply} & 168 & 112 & 50 \\
++\texttt{I-10-4-30-H-Combined} & 75 & 75 & 168 \\
++\texttt{I-10-4-30-L-LongLT} & 168 & 210 & 56 \\
++\texttt{I-10-4-30-L-MildSeas} & 75 & 75 & 168 \\
++\texttt{I-10-4-30-L-SL5} & 112 & 210 & 168 \\
++\midrule
++\multicolumn{4}{l}{\textit{\textbf{Group 6: Large-Scale Long Horizon (10 items, 4 suppliers, 60 periods)}}} \\
++\addlinespace
++\texttt{I-10-4-60-L} & 126 & 126 & 75 \\
++\texttt{I-10-4-60-H} & 154 & 168 & 168 \\
++\midrule
++\multicolumn{4}{l}{\textit{\textbf{Group 7: Extra-Large Scale (15 items, 4 suppliers)}}} \\
++\addlinespace
++\texttt{I-15-4-30-L} & 75 & 112 & 75 \\
++\texttt{I-15-4-60-H-Combined} & 75 & 154 & 53 \\
++\midrule
++\multicolumn{4}{l}{\textit{\textbf{Group 8: Extra-Large Scale (20 items, 5 suppliers)}}} \\
++\addlinespace
++\texttt{I-20-5-30-L} & 112 & 126 & 252 \\
++\texttt{I-20-5-60-H} & 75 & 140 & 252 \\
++\texttt{I-20-5-90-H-Combined} & 154 & 112 & 252 \\
++\end{longtable}
++
++
+ 
+ {For the RL methods, the SAC hyperparameters were chosen based on the settings reported by \citet{Yavuz2024}, while the DQN configuration follows \citet{Moor2022}. For PPO, we adopted the common default-style hyperparameter values widely used in recent RL literature and in the underlying \texttt{Stable-Baselines3} implementation.}
+ 
+@@ -855,8 +960,8 @@
+     \midrule
+     Baseline Policies (COP, BSP) & $200$ candidate policies; evaluation episodes $N_{eval} = 30$ per candidate; Monte Carlo search over discrete sets \\
+     Baseline Policy (BSP-EW) & $300$ candidate policies; $N_{eval} = 30$ per candidate; wastage look-ahead horizon $= 1$; $40$ demand simulation paths \\
+-    GA / EGA & Initial population $N_{pop,0} = 75$ with adaptive bracket-and-bisect search (growth $\gamma = 1.5$, 5-trial budget); $G_{max} = 50$; $N_{eval} = 30$ per individual; $c_{rate} = 0.8$; $m_{rate} = 0.15$ \\
+-    PSO & Initial population $N_{pop,0} = 50$ with adaptive bracket-and-bisect search (growth $\gamma = 1.5$, 5-trial budget); $G_{max} = 50$; $N_{eval} = 30$ per individual; integer projection on the variable bounds \\
++    GA / EGA & Initial population $N_{pop,0} = 75$ with adaptive bracket-and-bisect search (growth $\gamma = 1.5$, 5-trial budget), selected values per instance in Table~\ref{tab:popsize_selected}; $G_{max} = 50$; $N_{eval} = 30$ per individual; $c_{rate} = 0.8$; $m_{rate} = 0.15$ \\
++    PSO & Initial population $N_{pop,0} = 50$ with adaptive bracket-and-bisect search (growth $\gamma = 1.5$, 5-trial budget), selected values per instance in Table~\ref{tab:popsize_selected}; $G_{max} = 50$; $N_{eval} = 30$ per individual; integer projection on the variable bounds \\
+     RL (PPO, SAC, DQN) & 2 million training timesteps; 6 parallel vectorized environments; 50 episodes for final (post-training) evaluation \\
+     \bottomrule
+   \end{tabular}
+@@ -875,14 +980,18 @@
+ Our benchmark comprises $50$ distinct instances that span variations in problem scale, demand and supply stochasticity, shelf life, cost structure, lead times, and demand shape. Running the full sensitivity sweep on all $50$ instances would be prohibitively expensive, so we selected five instances that span the most informative axes of variation in the benchmark:
+ \begin{itemize}
+     \item \texttt{I-4-2-30-L}: the small-scale baseline with low demand volatility and high supplier reliability. It is the reference point for the small-scale family at $4$ items, $2$ suppliers, and $30$ periods (\texttt{I-4-2-30-Flat}, \texttt{I-4-2-30-H-Demand}, \texttt{I-4-2-30-H-Supply}, \texttt{I-4-2-30-H-Combined}, \texttt{I-4-2-30-L-LongLT}, \texttt{I-4-2-30-L-MildSeas}, \texttt{I-4-2-30-L-RndSeas-A}, \texttt{I-4-2-30-L-RndSeas-B}, \texttt{I-4-2-90-L}).
+-    \item \texttt{I-4-2-30-H-Combined}: combines high demand volatility ($cv \approx 0.8$) with low supplier reliability ($p_{full} \approx 0.85$) on the same small scale. It represents the high-stochasticity small-instance regime, namely \texttt{I-4-2-30-H-Demand} and \texttt{I-4-2-30-H-Supply}, together with the random-seasonality variants \texttt{I-4-2-30-L-RndSeas-A} and \texttt{I-4-2-30-L-RndSeas-B}.
++    \item \texttt{I-4-2-30-H-Combined}: combines high demand volatility ($cv \approx 0.8$) with low supplier reliability ($p^{full} \approx 0.85$) on the same small scale. It represents the high-stochasticity small-instance regime, namely \texttt{I-4-2-30-H-Demand} and \texttt{I-4-2-30-H-Supply}, together with the random-seasonality variants \texttt{I-4-2-30-L-RndSeas-A} and \texttt{I-4-2-30-L-RndSeas-B}.
+     \item \texttt{I-10-4-60-H}: a large-scale, long-horizon, high-uncertainty case. It represents the upper end of the medium and large group (\texttt{I-10-4-30-L}, \texttt{I-10-4-30-H-Demand}, \texttt{I-10-4-30-H-Supply}, \texttt{I-10-4-30-H-Combined}) and the long-horizon variants (\texttt{I-4-2-90-L}, \texttt{I-4-2-60-L},\newline \texttt{I-4-2-90-H-Combined}, \texttt{I-10-4-60-L}).
+     \item \texttt{I-20-5-60-H}: the extreme-scale stress test ($20$ items, $5$ suppliers, $60$ periods, high combined stochasticity). It represents the very large extensions \texttt{I-15-4-30-L}, \texttt{I-15-4-60-H-Combined}, \texttt{I-20-5-30-L}, and \texttt{I-20-5-90-H-Combined}, the last of which extends the same high, combined-uncertainty profile to a longer $90$-period horizon.
+     \item \texttt{I-4-2-30-L-SL5}: a small-scale, low-stochasticity instance with an extended shelf life. It represents the shelf life and cost-structure perturbations on the small base case (\texttt{I-4-2-30-L-SL2}, \texttt{I-4-2-30-L-SL3}, \texttt{I-4-2-30-L-SL6}, \texttt{I-4-2-30-L-HighHold}, \texttt{I-4-2-30-L-HighShort}, \newline \texttt{I-4-2-30-L-HighFixed}, \texttt{I-4-2-30-L-LowDem}, \texttt{I-4-2-30-L-HighDem}), in which the perishability constraint is relaxed, and the policy choice typically becomes flatter in the objective.
+ \end{itemize}
+ Together, these five instances cover the two main axes that govern problem difficulty in our setup, namely \emph{scale} ($4$ to $20$ items, $30$ to $60$ periods) and \emph{stochasticity} (low to high on both demand and supply), plus a representative of the shelf life and cost-structure perturbations. Conclusions drawn from these five instances serve as evidence of the generalization capability to the other $45$ instances in the benchmark, which span the same axes of difficulty.
+ 
+-For each algorithm, instance, and hyperparameter, let $c_0$ denote the average cost-based objective at the default level of that hyperparameter, and let $c^{\star}$ denote the same quantity at the best level within the tested range. Table \ref{tab:sensitivity_summary} reports the relative improvement $\Delta \;=\; (c^{\star} - c_0)/|c_0|.$
++For each algorithm, instance, and hyperparameter, let $c_0$ denote the average total cost obtained at the default level of that hyperparameter, and let $c^{\star}$ denote the same quantity at the best level within the tested range, that is, the level attaining the lowest average cost (equivalently, the highest average total reward $R^{\star} = -c^{\star}$). Table \ref{tab:sensitivity_summary} reports the relative improvement
++\[
++\Delta \;=\; \frac{c_0 - c^{\star}}{|c_0|} \;=\; \frac{R^{\star} - R_0}{|R_0|},
++\]
++with $R_0 = -c_0$. Since $c^{\star} \le c_0$ by definition of $c^{\star}$, we have $\Delta \ge 0$, and a larger value of $\Delta$ denotes a larger gain of the best level over the default level. This is the convention behind the positive percentages reported in Table~\ref{tab:sensitivity_summary}.
+ 
+ The detailed per-algorithm, per-instance results are reported in Tables~S3--S17 of the supplementary material.
+ 
+@@ -929,7 +1038,7 @@
+ By contrast, $G_{max}$, $N_{eval}$, crossover, and mutation rates exhibit much smaller and non-monotonic responses, with mean improvements of only $0.61\%$ to $1.62\%$ and individual best levels scattered across the parameter range with no recognizable pattern. 
+ On the shelf life-extended instance \texttt{I-4-2-30-L-SL5}, even the $N_{pop}$ effect collapses to under $1\%$, which is consistent with the intuition that, when perishability is relaxed, the policy landscape becomes much flatter and the choice of optimizer hyperparameters becomes essentially irrelevant.
+ 
+-We have two practical outcomes from the analysis. Since $N_{pop}$ is the only hyperparameter with a meaningful, scale-dependent effect, the main experiments adopt larger population sizes than those used in the one-factor-at-a-time analysis ($N_{pop} = 100$ for GA/EGA and $N_{pop} = 50$ for PSO), while keeping all remaining hyperparameters at their default values. The absence of a systematic trend in $G_{max}$, $N_{eval}$, $c_{rate}$, and $m_{rate}$ suggests that a full grid or Bayesian search over these parameters would not have yielded materially different conclusions, only longer training times. Any future, more resource-intensive hyperparameter tuning for these methods should therefore focus on $N_{pop}$, and possibly on its interaction with instance scale, rather than on the remaining four hyperparameters. This also justifies the decision not to perform an exhaustive grid search per instance, which would be incompatible with the computational budget reported in Section~\ref{sec:experiments}.}
++We have two practical outcomes from the analysis. Since $N_{pop}$ is the only hyperparameter with a meaningful, scale-dependent effect, it is also the only one that we tune per instance: the main experiments do not adopt a single fixed population size, but select $N_{pop}$ for every instance and every algorithm through the adaptive bracket-and-bisect line search described in Section~\ref{sec:experiments}, starting from $N_{pop,0} = 75$ for GA/EGA and $N_{pop,0} = 50$ for PSO. The selected values, reported in Table~\ref{tab:popsize_selected}, are systematically larger than the $N_{pop} = 30$ default used in this one-factor-at-a-time analysis. All remaining hyperparameters are kept at their default values. The absence of a systematic trend in $G_{max}$, $N_{eval}$, $c_{rate}$, and $m_{rate}$ suggests that a full grid or Bayesian search over these parameters would not have yielded materially different conclusions, only longer training times. Any future, more resource-intensive hyperparameter tuning for these methods should therefore focus on $N_{pop}$, and possibly on its interaction with instance scale, rather than on the remaining four hyperparameters. This also justifies the decision not to perform an exhaustive grid search per instance, which would be incompatible with the computational budget reported in Section~\ref{sec:experiments}.}
+ 
+ \section{Results and Discussion}
+ 
+@@ -943,15 +1052,15 @@
+ \renewcommand{\arraystretch}{1.15} % Increase row spacing for readability
+ \footnotesize
+ \begin{longtable}{@{}l l S[table-format=-6.2] c@{}}
+-\caption{Summary of Best-Performing Methods by Instance across all 50 experimental instances. Methods listed in the ``Best Method(s)'' column are those belonging to the best statistical group for total cost (Wilcoxon signed-rank test, $p\geq 0.05$). The ``Cost Red.\ (\%)'' column shows the percentage cost reduction relative to the BSP-EW method, reported as mean $\pm$ standard deviation across the 50 paired evaluation episodes. Full detailed results are reported in Table~S2 of the supplementary material.}
++\caption{Summary of Best-Performing Methods by Instance across all 50 experimental instances. Methods listed in the ``Best Method(s)'' column are those belonging to the best statistical group for total cost (Wilcoxon signed-rank test, $p\geq 0.05$). The ``Total Reward'' column reports the average total episode reward $R = -\sum_{t=1}^{T} C_t$ returned by the simulator for the best method of the row; values are therefore negative, and a larger (less negative) value denotes a cheaper policy. The corresponding average total cost is the absolute value of the reported figure. The ``Cost Red.\ (\%)'' column shows the percentage cost reduction relative to the BSP-EW method, reported as mean $\pm$ standard deviation across the 50 paired evaluation episodes, so that a positive value denotes a cost saving. Full detailed results are reported in Table~S2 of the supplementary material.}
+ \label{tab:summary_metrics_compact} \\
+ \toprule
+-\textbf{Instance} & \textbf{Best Method(s)} & {\bfseries Total Cost} & {\bfseries Cost Red. (\%)} \\
++\textbf{Instance} & \textbf{Best Method(s)} & {\bfseries Total Reward} & {\bfseries Cost Red. (\%)} \\
+ \midrule
+ \endfirsthead
+ \multicolumn{4}{c}{{\bfseries \tablename\ \thetable{} -- continued from the previous page}} \\
+ \toprule
+-\textbf{Instance} & \textbf{Best Method(s)} & {\bfseries Total Cost} & {\bfseries Cost Red. (\%)} \\
++\textbf{Instance} & \textbf{Best Method(s)} & {\bfseries Total Reward} & {\bfseries Cost Red. (\%)} \\
+ \midrule
+ \endhead
+ \bottomrule
+@@ -1038,7 +1147,7 @@
+ {
+ \subsection{Overall Performance}
+ 
+-Across the fifty instances, the population-based hyper-heuristics (GA, EGA, and PSO) clearly dominate over the other methods. Looking at the average objective values in Table~S2 of the supplementary material, these three methods collectively appear in the best statistical group in all $50$ out of $50$ instances. EGA is in the best statistical group in $42$ instances ($16$ solo wins, plus $26$ statistical ties with one or more of GA/PSO/COP). GA is in the best statistical group in $34$ instances ($8$ solo wins, plus $26$ ties). PSO is in the best statistical group in $10$ instances, always as part of a tie. The simple parametrized COP policy enters the best group only once, in a four-way tie on \texttt{I-4-2-30-MH-Demand}; the remaining baseline and reinforcement learning methods are never inside the best statistical group. To measure consistency, we ranked the nine methods from $1$ (best) to $9$ (worst) in each instance. The average ranks (reported as mean $\pm$ standard deviation across the $50$ instances) were: EGA ($1.26 \pm 0.44$), GA ($1.80 \pm 0.49$), PSO ($3.12 \pm 0.56$), BSP ($5.18 \pm 0.94$), BSP-EW ($5.44 \pm 0.81$), COP ($5.52 \pm 1.59$), SAC ($6.52 \pm 1.54$), PPO ($7.50 \pm 1.57$), and DQN ($8.66 \pm 0.56$). EGA emerges as the most consistent overall performer with the lowest average rank, while GA and PSO follow closely. The remaining methods cluster behind, with COP and the basic parametrized policies (BSP, BSP-EW) at intermediate ranks and the RL methods at the bottom.
++Across the fifty instances, the population-based hyper-heuristics (GA, EGA, and PSO) clearly dominate over the other methods. Looking at the average objective values (reported as average total rewards) in Table~S2 of the supplementary material, these three methods collectively appear in the best statistical group in all $50$ out of $50$ instances. EGA is in the best statistical group in $42$ instances ($16$ solo wins, plus $26$ statistical ties with one or more of GA/PSO/COP). GA is in the best statistical group in $34$ instances ($8$ solo wins, plus $26$ ties). PSO is in the best statistical group in $10$ instances, always as part of a tie. The simple parametrized COP policy enters the best group only once, in a four-way tie on \texttt{I-4-2-30-MH-Demand}; the remaining baseline and reinforcement learning methods are never inside the best statistical group. To measure consistency, we ranked the nine methods from $1$ (best) to $9$ (worst) in each instance. The average ranks (reported as mean $\pm$ standard deviation across the $50$ instances) were: EGA ($1.26 \pm 0.44$), GA ($1.80 \pm 0.49$), PSO ($3.12 \pm 0.56$), BSP ($5.18 \pm 0.94$), BSP-EW ($5.44 \pm 0.81$), COP ($5.52 \pm 1.59$), SAC ($6.52 \pm 1.54$), PPO ($7.50 \pm 1.57$), and DQN ($8.66 \pm 0.56$). EGA emerges as the most consistent overall performer with the lowest average rank, while GA and PSO follow closely. The remaining methods cluster behind, with COP and the basic parametrized policies (BSP, BSP-EW) at intermediate ranks and the RL methods at the bottom.
+ }
+ 
+ 

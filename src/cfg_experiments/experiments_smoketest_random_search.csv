@@ -1,0 +1,2 @@
+env_name;agent_name;start_seed;num_seeds;load_policy_file;save_policy_file;render;verbose
+setting_0;random_search_smoketest;42;1;;./src/results/policies/smoketest_random_search.json;FALSE;FALSE

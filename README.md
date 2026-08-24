@@ -33,7 +33,7 @@ The project is organized to separate the environment, agents, configurations, an
 
 ```plaintext
 ├───src
-│   ├───agents          # COP, BSP, BSP-EW, Metaheuristic, and Reinforcement Learning agents
+│   ├───agents          # COP, BSP, BSP-EW, Metaheuristic, Random-Search, and RL agents
 │   ├───envs            # Perishable inventory simulation environment (perishableInvEnv.py)
 │   ├───cfg_agent       # JSON configuration files for each agent
 │   ├───cfg_env         # JSON configuration files for experimental scenarios (settings 0–15)
@@ -73,6 +73,18 @@ These agents optimize a single, uniform policy type across all items using Monte
 
 #### Metaheuristic Agent
 *   **`PymooMetaHeuristicAgent.py`:** A powerful agent that leverages population-based metaheuristics from the `pymoo` library (GA, PSO, NSGA-II). This agent constructs a hybrid policy by finding the optimal combination of heuristic (COP, BSP, or BSP-EW) and its corresponding parameters for each item individually. This allows it to create highly tailored and effective control strategies.
+
+#### Budget-Matched Random Search (Ablation)
+*   **`RandomSearchHyperHeuristicAgent.py` (RS):** Uses the **same item-level hybrid encoding** as
+    `PymooMetaHeuristicAgent` — it literally reuses that module's `InventoryOptimizationProblem`, so the
+    decision-variable bounds, the chromosome decoding and the common-random-numbers fitness estimator are
+    identical — but replaces the population-based search with **uniform random (Monte Carlo) sampling** over
+    the same discrete box.
+
+    Its purpose is to **separate the benefit of the encoding from the benefit of the search mechanism**. The
+    parametrised baselines (COP, BSP, BSP-EW) apply one policy type to every item, so a GA-vs-COP gap
+    conflates "per-item hybrid policies help" with "evolutionary search helps". RS holds the encoding fixed
+    and varies only the search, under a matched evaluation budget.
 
 #### Reinforcement Learning Agents (Stable-Baselines3)
 *   **`StableBaselinesAgent.py`:** An RL-based agent built on [Stable-Baselines3](https://stable-baselines3.readthedocs.io/) supporting three algorithms:
@@ -131,6 +143,41 @@ python main_runner.py --batch_file ./src/cfg_experiments/experiments_batch_sensi
 ```
 
 **Population-based methods now perform a built-in `pop_size` search.** The default `ga_config.json`, `nsga2_config.json`, and `pso_config.json` enable a 5-trial bracket-and-bisect line search over `pop_size` (start values 75/75/50, growth factor 1.5). Each GA / EGA / PSO row therefore runs up to **5 pymoo optimizations** and re-evaluates each resulting policy on `num_final_eval_episodes` to pick the winner. Expect those rows to take ~5× longer than the single-shot pymoo runs reported in earlier versions of the code. The full search trace (every trial's `pop_size`, `avg_reward`, and timings) is written next to the saved policy as `<policy>_search.json`. To revert to single-shot behaviour for a faster run, set `params.hyperparameter_search.enabled: false` in the agent config; the sensitivity-sweep configs (`*_sens_*`) already opt out so the sweep itself is unaffected.
+
+### Budget-matched random search baseline (RS)
+
+`RandomSearchHyperHeuristicAgent` is given, on every instance, **at least as many candidate-policy
+evaluations as any population-based method consumed on that same instance** — the adaptive
+population-size search included. The budget is not hard-coded: the agent reads the GA / EGA / PSO
+`*_optimized_search.json` logs of the same scenario and computes
+
+```
+budget[n] = max over {GA, EGA, PSO} of ( sum of pop_size over that method's 5 trials ) x n_gen(=50)
+```
+
+which over the 50 settings comes to **1,744,600 candidate evaluations** in total. Everything else
+(`num_optimize_eval_episodes: 30`, `num_final_eval_episodes: 50`, the quantity / base-stock option
+grids, the BSP-EW wastage estimator) is copied verbatim from `ga_config.json`, so the search engine
+is the only difference. Like GA's population-size search, RS re-scores a shortlist of its 5 best
+candidates on `num_final_eval_episodes` and keeps the winner, so the two selection procedures are
+symmetric.
+
+> **Prerequisite:** the reference logs must already exist in `src/results/policies/`
+> (`<n>_ga_config_optimized_search.json`, `..._nsga2_...`, `..._pso_...`). Without them the agent
+> warns and falls back to `budget_matching.fallback_evaluation_budget`.
+
+```powershell
+python main_runner.py --batch_file ./src/cfg_experiments/experiments_batch_random_search.csv --num_workers 14 --resource_log ./results/rs_results/rs_resources.csv --results_output_csv ./results/rs_results/rs_results.csv
+```
+
+Each run writes a `<policy>_budget.json` audit file next to the saved policy, recording the resolved
+budget, the per-method reference budgets it was derived from, the batch schedule, the shortlist and
+the winner — this is the artifact to cite when reporting that the budgets were matched.
+
+**Cost: ~407 core-hours (~2 days wall-clock at 14 workers).** The batch CSV is ordered
+longest-instance-first so the pool makespan stays close to the tail instance (`setting_49`, ~48 h)
+rather than stacking a serial tail on top of it. To pilot cheaply first, set
+`budget_matching.scale` to e.g. `0.1` in `src/cfg_agent/random_search_config.json`.
 
 **Choosing `--num_workers`:**
 *   Single-threaded NumPy agents (BSP, BSP-EW, COP, GA, NSGA-II, PSO): set workers to `physical_cores − 2` (e.g. 14 on a 16-core machine). Each worker uses ~1 core and ~260 MB RSS.

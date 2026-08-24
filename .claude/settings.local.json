@@ -111,7 +111,14 @@
       "Bash(python find_brace_imbalance.py)",
       "Bash(grep -nE '\\\\$[A-Za-z]_\\\\{[a-zA-Z]+ ?=' tex_folder/main.tex)",
       "Bash(grep -nE '\\\\$[A-Za-z]_\\\\{[a-zA-Z]+ ?=' tex_folder/response.tex)",
-      "Bash(sed -n '870p' tex_folder/main.tex)"
+      "Bash(sed -n '870p' tex_folder/main.tex)",
+      "Bash(sed -n '850,860p' tex_folder/main.tex)",
+      "Bash(echo \"=== look for $\\\\\\\\theta$ / $\\\\\\\\Theta$ / $\\\\\\\\widehat{W}$ etc ===\")",
+      "Bash(grep -n '\\\\\\\\theta\\\\|\\\\\\\\Theta_{COP\\\\|\\\\\\\\Theta_{BSP\\\\|widehat{W}\\\\|\\\\\\\\gamma\\\\|\\\\\\\\eta_c\\\\|\\\\\\\\eta_m' tex_folder/main.tex)",
+      "Bash(echo \"=== code-style \\\\\\\\texttt{xx_yy} parameter names in main.tex \\(excluding instance / agent names / pymoo\\) ===\")",
+      "Bash(grep -nE '\\\\\\\\texttt\\\\{[a-z]+_[a-z_]+\\\\}' tex_folder/main.tex)",
+      "Bash(echo \"=== sanity: remaining \\\\\\\\texttt{xx_yy} hyperparameter-name leftovers in main.tex ===\")",
+      "Bash(grep -nE '\\\\\\\\texttt\\\\{\\(num_|learning_|n_\\(steps|envs|epochs\\)|batch_size|buffer_size|gamma|tau|gae_lambda|clip_range|ent_coef|vf_coef|max_grad_norm|target_update_interval|train_freq|gradient_steps|dqn_num_actions|exploration_\\(fraction|final_eps\\)|policy|total_timesteps|max_order_quantity|population_size|num_generations|num_optimize_eval_episodes|num_final_eval_episodes|crossover_rate|mutation_rate|num_candidate_policies|waste_horizon_review_periods|num_ew_demand_sim_paths\\)' tex_folder/main.tex)"
     ]
   }
 }

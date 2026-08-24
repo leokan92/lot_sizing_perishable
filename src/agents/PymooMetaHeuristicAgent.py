@@ -241,10 +241,7 @@ class PymooMetaHeuristicAgent:
                 self.best_chromosome = None
         if self.best_chromosome is None:
             self._reset_env_seed_sequence()
-            if self.hp_search_config.get("enabled", False):
-                self._optimize_policy_with_search()
-            else:
-                self._optimize_policy_pymoo()
+            self._run_optimization()
             if self.save_policy_path:
                 print(f"\n--- Saving Optimized Meta-Heuristic Policy ---")
                 try:
@@ -263,6 +260,16 @@ class PymooMetaHeuristicAgent:
                 self.env.reset_seed_sequence(int(base_seed))
             except Exception:
                 pass
+
+    def _run_optimization(self):
+        """Dispatch hook for the search engine.
+
+        Subclasses override this to swap the optimizer while keeping the
+        encoding, the CRN evaluation, policy save/load and run() untouched."""
+        if self.hp_search_config.get("enabled", False):
+            self._optimize_policy_with_search()
+        else:
+            self._optimize_policy_pymoo()
 
     def _optimize_policy_pymoo(self):
         algo_name = self.algorithm_config.get("name", "GA").upper()

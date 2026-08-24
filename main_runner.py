@@ -55,6 +55,7 @@ def get_agent_class(agent_type_name):
         "bsp_ew": ("BSPEWAgent", "src.agents.BSPEWAgent"),
         "bsp_ew_low": ("BSPEWLowAgent", "src.agents.BSPEWLowAgent"),
         "pymoo_meta_heuristic": ("PymooMetaHeuristicAgent", "src.agents.PymooMetaHeuristicAgent"),
+        "random_search_hyper_heuristic": ("RandomSearchHyperHeuristicAgent", "src.agents.RandomSearchHyperHeuristicAgent"),
         "stable_baselines": ("StableBaselinesAgent", "src.agents.StableBaselinesAgent")
     }
     if agent_type_name not in agent_mapping:
@@ -134,7 +135,9 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
     if pd.isna(save_policy_path_from_csv) or not str(save_policy_path_from_csv).strip():
         save_policy_path_from_csv = None
 
-    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_ew_low", "pymoo_meta_heuristic", "stable_baselines"]
+    policy_handling_agents = ["cop", "bsp", "bsp_ew", "bsp_ew_low", "pymoo_meta_heuristic",
+                              "random_search_hyper_heuristic", "stable_baselines"]
+    json_policy_agents = ("pymoo_meta_heuristic", "random_search_hyper_heuristic")
     if agent_type in policy_handling_agents:
         agent_params['load_policy_path'] = load_policy_path_from_csv
         if load_policy_path_from_csv:
@@ -156,7 +159,7 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
                 name, ext = os.path.splitext(base_name)
                 
                 if not ext:
-                    if agent_type == "pymoo_meta_heuristic": ext = '.json'
+                    if agent_type in json_policy_agents: ext = '.json'
                     elif agent_type == "stable_baselines": ext = '.zip'
                     else: ext = '.npy'
                 
@@ -175,7 +178,7 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
             name, ext = os.path.splitext(base_name)
             
             if not ext:
-                if agent_type == "pymoo_meta_heuristic": ext = '.json'
+                if agent_type in json_policy_agents: ext = '.json'
                 elif agent_type == "stable_baselines": ext = '.zip'
                 else: ext = '.npy'
             
@@ -195,6 +198,11 @@ def run_experiment(exp_config, current_seed, default_config_dirs):
 
     if policy_file_path_used_for_run:
         print(f"Policy file associated with this run: {policy_file_path_used_for_run}")
+
+    # The budget-matched random search resolves its evaluation budget from the
+    # GA/EGA/PSO search logs of the SAME scenario, so it needs the scenario name.
+    if agent_type == "random_search_hyper_heuristic":
+        agent_params["env_name"] = exp_config['env_name']
 
     if "logger_settings" not in agent_params: agent_params["logger_settings"] = {}
     experiment_log_name = f"{exp_config['env_name']}_{exp_config['agent_name']}_{agent_type}_seed{current_seed}"

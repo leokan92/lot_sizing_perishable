@@ -131,6 +131,7 @@ METHOD_DISPLAY_NAME = {
     'ga_config (pymoo_meta_heuristic)':            'GA',
     'nsga2_config (pymoo_meta_heuristic)':         'EGA',
     'pso_config (pymoo_meta_heuristic)':           'PSO',
+    'random_search_config (random_search_hyper_heuristic)': 'RS',
     'stable_baselines_default (stable_baselines)': 'PPO',
     'stable_baselines_dqn (stable_baselines)':     'DQN',
     'stable_baselines_sac (stable_baselines)':     'SAC',

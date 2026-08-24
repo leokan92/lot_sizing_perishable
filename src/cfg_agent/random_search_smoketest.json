@@ -1,0 +1,32 @@
+{
+    "agent_type": "random_search_hyper_heuristic",
+    "params": {
+        "algorithm_config": {
+            "name": "RANDOM",
+            "params": {}
+        },
+        "budget_matching": {
+            "enabled": false,
+            "batch_size": 50,
+            "final_shortlist_size": 3,
+            "save_budget_log": true
+        },
+        "evaluation_budget": 200,
+        "num_optimize_eval_episodes": 3,
+        "num_final_eval_episodes": 3,
+        "quantity_options": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "base_stock_level_options": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 22, 24, 26],
+        "bspew_waste_estimation_method": "deterministic_simulation",
+        "bspew_waste_horizon_review_periods": 1,
+        "bspew_num_ew_demand_sim_paths": 5,
+        "hyperparameter_search": {
+            "enabled": false
+        },
+        "logger_settings": {
+            "log_step_details": false,
+            "log_dir": "./src/results/simulation_logs/",
+            "experiment_name": "random_search_smoketest",
+            "log_actions": false
+        }
+    }
+}
